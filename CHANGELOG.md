@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0
+
+- **Umbenannt**: Die Extension heißt jetzt schlicht **abap2UI5** statt
+  „abap2UI5 Demokit Helper". Sie war nie an den Demokit gebunden – der Name
+  stammte nur aus dem Repository, in dem sie ursprünglich lag. Eigenes
+  Repository: <https://github.com/abap2UI5-addons/vscode-extension>.
+- README überarbeitet: beschreibt die Extension als allgemeines Werkzeug für
+  die abap2UI5-Entwicklung, mit Tabellen für Einstellungen und Befehle.
+- Command-IDs vereinheitlicht auf das `abap2ui5.`-Präfix:
+  `abap2ui5-demokit.newApp` → `abap2ui5.newApp`,
+  `abap2ui5-demokit.openDemokit` → `abap2ui5.openHomepage`.
+  Die Titel in der Command Palette bleiben gleich (bis auf „Demokit im Browser
+  öffnen" → „Projekt auf GitHub öffnen", was schon immer das abap2UI5-Repo
+  geöffnet hat).
+
+> **Beim Update beachten:** Mit dem Namen ändert sich die Extension-ID von
+> `abap2ui5-local.abap2ui5-demokit` auf `abap2ui5-local.abap2ui5`. VS Code
+> erkennt die neue `.vsix` daher als eigenständige Extension – die alte einmalig
+> deinstallieren:
+> `code --uninstall-extension abap2ui5-local.abap2ui5-demokit`.
+> Deine Einstellungen (`abap2ui5.*`) bleiben erhalten, sie hängen an der
+> `settings.json`, nicht an der Extension-ID. Die im SecretStorage abgelegten
+> SAP-Zugangsdaten hängen dagegen an der ID und werden beim ersten F9 nach dem
+> Update einmalig neu abgefragt.
+
 ## 0.5.0
 
 - **Auto-Reload beim Aktivieren:** Wird die im Tab gezeigte App-Klasse

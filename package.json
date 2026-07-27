@@ -1,8 +1,8 @@
 {
-  "name": "abap2ui5-demokit",
-  "displayName": "abap2UI5 Demokit Helper",
-  "description": "Helfer-Extension rund um abap2UI5: F9 startet eine z2ui5_if_app-Klasse im eingebetteten Browser-Panel, plus Snippets.",
-  "version": "0.5.0",
+  "name": "abap2ui5",
+  "displayName": "abap2UI5",
+  "description": "Entwicklung von abap2UI5-Apps in VS Code: F9 startet eine z2ui5_if_app-Klasse in der eingebetteten Vorschau, Auto-Reload beim Speichern, Snippets.",
+  "version": "0.6.0",
   "publisher": "abap2ui5-local",
   "license": "MIT",
   "private": true,
@@ -30,12 +30,12 @@
         "title": "abap2UI5: Gespeicherte SAP-Zugangsdaten löschen"
       },
       {
-        "command": "abap2ui5-demokit.newApp",
+        "command": "abap2ui5.newApp",
         "title": "abap2UI5: Neue App-Vorlage einfügen"
       },
       {
-        "command": "abap2ui5-demokit.openDemokit",
-        "title": "abap2UI5: Demokit im Browser öffnen"
+        "command": "abap2ui5.openHomepage",
+        "title": "abap2UI5: Projekt auf GitHub öffnen"
       }
     ],
     "keybindings": [

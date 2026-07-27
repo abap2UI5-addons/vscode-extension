@@ -1,64 +1,116 @@
-# abap2UI5 Demokit Helper (VS Code Extension)
+# abap2UI5 für VS Code
 
-Eine kleine VS-Code-Extension mit Snippets und Befehlen rund um abap2UI5.
-Gedacht zum **privaten Teilen** (du + Freunde) – ganz **ohne Marketplace**.
+VS-Code-Extension für die Entwicklung von **abap2UI5**-Apps: App per **F9**
+starten, direkt daneben im Editor ansehen, beim Speichern automatisch neu laden
+– ohne den Kontextwechsel in den Browser.
+
+Funktioniert mit jedem System, auf dem abap2UI5 läuft (On-Premise oder Cloud);
+gebunden ist die Extension an nichts außer die Launch-URL, die du einmal
+hinterlegst.
 
 ## Features
 
 - **F9 startet die App** – Steht der Cursor in einer ABAP-Klasse, die
-  `z2ui5_if_app` implementiert, öffnet **F9** die App **unten im Panel**
-  (neben Terminal/Output) in einem eingebetteten Browser.
-  Ist die Klasse *keine* z2ui5-App, verhält sich F9 wie gewohnt
-  (Breakpoint umschalten).
-- **Auto-Reload beim Aktivieren** – Wird die im Tab gezeigte App-Klasse
-  gespeichert/aktiviert, lädt der eingebettete Browser automatisch neu (ohne F9).
-  Abschaltbar via `abap2ui5.reloadOnSave`.
-- **Command "abap2UI5: Neue App-Vorlage einfügen"** – App-Klassen-Skelett.
-- **Command "abap2UI5: Demokit im Browser öffnen"** – öffnet das abap2UI5-Repo.
-- **Snippets** (in ABAP-Dateien): `z2ui5app`, `z2ui5button`.
+  `z2ui5_if_app` implementiert, öffnet **F9** die App in einem eingebetteten
+  Browser neben dem Quelltext. Ist die Klasse *keine* z2ui5-App, verhält sich
+  F9 wie gewohnt (Breakpoint umschalten) – die Taste geht dir also nicht
+  verloren.
+- **Fokus bleibt im Code** – Nach dem Start springt der Cursor zurück an
+  dieselbe Stelle im Quelltext; auch wenn die ladende App den Fokus an sich
+  ziehen will.
+- **Auto-Reload beim Speichern** – Wird die gezeigte App-Klasse gespeichert,
+  lädt die eingebettete Vorschau automatisch neu. Abschaltbar über
+  `abap2ui5.reloadOnSave`.
+- **Anmeldung ohne 401** – Für die eingebettete Ansicht bringt die Extension
+  einen lokalen Auth-Proxy mit (siehe unten).
+- **Snippets** für ABAP-Dateien: `z2ui5app`, `z2ui5button`.
+- **App-Vorlage einfügen** – Klassen-Skelett für eine neue abap2UI5-App.
 
-Befehle findest du über die Command Palette (`Ctrl/Cmd + Shift + P`).
+Alle Befehle findest du über die Command Palette (`Ctrl/Cmd + Shift + P`).
 
-## Einrichtung der Launch-URL
+## Launch-URL einrichten
 
-Beim ersten F9 wirst du nach der Launch-URL gefragt. `{class}` ist der
-Platzhalter für den Klassennamen, z. B.:
+Beim ersten F9 fragt die Extension nach der Launch-URL. `{class}` ist der
+Platzhalter für den Klassennamen:
 
 ```
 https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100
 ```
 
 Die URL wird gespeichert und lässt sich jederzeit ändern:
-Settings → `abap2ui5.launchUrlTemplate` (oder in `settings.json`).
+Settings → `abap2ui5.launchUrlTemplate` (oder direkt in der `settings.json`).
 
 ## Öffnen-Modus (`abap2ui5.openMode`)
 
-- **`tab`** (Standard): App eingebettet in einem Editor-Tab.
-- **`panel`**: App eingebettet unten im Panel-Bereich.
-- **`external`**: App im normalen Browser (nutzt deine bestehende SAP-Session).
+| Modus | Verhalten |
+| --- | --- |
+| `tab` (Standard) | App eingebettet in einem Editor-Tab neben dem Code, über den lokalen Auth-Proxy |
+| `panel` | Dasselbe, aber unten im Panel-Bereich neben Terminal/Output |
+| `external` | Im normalen Browser (nutzt deine bestehende SAP-Session/SSO, kein Proxy nötig) |
 
 ### Wie die Anmeldung im Tab/Panel funktioniert (Auth-Proxy)
 
 Ein eingebetteter iframe hat **keine** SAP-Session – ein direkter Aufruf würde
-mit **401 Not authorized** enden. Deshalb startet die Extension bei `tab`/`panel`
-einen **lokalen Auth-Proxy** auf `127.0.0.1`:
+mit **401 Not authorized** enden. Deshalb startet die Extension bei `tab` und
+`panel` einen lokalen Auth-Proxy auf `127.0.0.1`:
 
-1. Beim ersten Start fragt sie **einmalig** deinen SAP-Benutzer + Passwort ab
-   (dieselben wie in ADT). Die Daten liegen sicher im VS Code **SecretStorage**.
-2. Der Proxy hängt bei **jedem** Request `Authorization: Basic …` an und leitet
-   ihn an dein SAP-System weiter (inkl. UI5-Ressourcen, Cookies, CSRF, Redirects).
-3. Der iframe lädt `http://127.0.0.1:<port>/…` – die App läuft eingebettet, ohne 401.
+1. Beim ersten Start fragt sie **einmalig** SAP-Benutzer und Passwort ab
+   (dieselben wie in ADT). Die Daten liegen im VS Code **SecretStorage**.
+2. Der Proxy hängt an **jeden** Request `Authorization: Basic …` an und leitet
+   ihn an dein System weiter – inklusive UI5-Ressourcen, Cookies, CSRF-Token
+   und Redirects.
+3. Der iframe lädt `http://127.0.0.1:<port>/…`, die App läuft eingebettet,
+   ohne 401.
 
-> Zugangsdaten ändern/löschen: Command **"abap2UI5: Gespeicherte SAP-Zugangsdaten
-> löschen"** (Command Palette), danach wird beim nächsten F9 neu gefragt.
+Damit das Einbetten überhaupt erlaubt ist, entfernt der Proxy `X-Frame-Options`
+und die CSP-Direktive `frame-ancestors` aus den Antworten. Selbstsignierte
+HTTPS-Zertifikate werden akzeptiert.
+
+> **Voraussetzung:** Das System akzeptiert **Basic Auth**. Reine SSO-/SAML-
+> Anmeldung ohne Basic-Auth-Fallback wird nicht unterstützt – dann `external`
+> verwenden.
 >
-> Voraussetzung: Das System akzeptiert **Basic Auth** (User/Passwort). Reine
-> SSO/SAML-Anmeldung ohne Basic-Auth-Fallback wird nicht unterstützt – dann
-> `external` verwenden.
->
-> Selbst-signierte Zertifikate (HTTPS) werden vom Proxy akzeptiert.
+> **Zugangsdaten ändern/löschen:** Command *„abap2UI5: Gespeicherte
+> SAP-Zugangsdaten löschen"*. Beim nächsten F9 wird neu gefragt.
 
----
+## Einstellungen
+
+| Einstellung | Default | Bedeutung |
+| --- | --- | --- |
+| `abap2ui5.launchUrlTemplate` | – | URL-Vorlage zum Starten einer App, `{class}` als Platzhalter |
+| `abap2ui5.openMode` | `tab` | `tab`, `panel` oder `external` |
+| `abap2ui5.reloadOnSave` | `true` | Vorschau beim Speichern der gezeigten Klasse neu laden |
+
+## Befehle
+
+| Befehl | Beschreibung |
+| --- | --- |
+| `abap2UI5: App starten (F9)` | Startet die App der aktuellen Klasse |
+| `abap2UI5: Neue App-Vorlage einfügen` | Fügt ein App-Klassen-Skelett ein |
+| `abap2UI5: Gespeicherte SAP-Zugangsdaten löschen` | Löscht Benutzer und Passwort aus dem SecretStorage |
+| `abap2UI5: Projekt auf GitHub öffnen` | Öffnet das abap2UI5-Repository im Browser |
+
+## Installation
+
+Die Extension wird derzeit als `.vsix` verteilt (noch nicht im Marketplace).
+
+**Über die Oberfläche:** Extensions-Panel (`Ctrl/Cmd + Shift + X`) → `…`-Menü →
+**Install from VSIX…** → Datei auswählen.
+
+**Über das Terminal:**
+
+```bash
+code --install-extension abap2ui5-0.6.0.vsix
+```
+
+**Update** = neue `.vsix` mit höherer Versionsnummer bauen und erneut
+installieren.
+
+**Deinstallieren:** Extensions-Panel → Extension suchen → **Uninstall**. Oder:
+
+```bash
+code --uninstall-extension abap2ui5-local.abap2ui5
+```
 
 ## Entwickeln
 
@@ -67,51 +119,24 @@ npm install
 npm run compile      # baut dist/extension.js mit esbuild
 ```
 
-In VS Code dieses Repository öffnen und **F5** drücken → es startet ein
-zweites VS-Code-Fenster (Extension Development Host) mit geladener Extension.
+Dieses Repository in VS Code öffnen und **F5** drücken → es startet ein zweites
+VS-Code-Fenster (Extension Development Host) mit geladener Extension.
 
-Während der Entwicklung praktisch: `npm run watch` (baut bei jeder Änderung neu).
+Praktisch während der Entwicklung: `npm run watch` baut bei jeder Änderung neu.
+`npm run lint` prüft die Typen (`tsc --noEmit`).
 
----
-
-## Als `.vsix` paketieren (zum Verteilen)
+## Als `.vsix` paketieren
 
 ```bash
 npm install
-npm run vsix         # ruft "vsce package --allow-missing-repository" auf
+npm run vsix
 ```
 
-Ergebnis: eine Datei wie `abap2ui5-demokit-0.0.1.vsix`. Diese Datei kannst du
-per Mail/Cloud/USB an deine Freunde weitergeben. **Kein Marketplace nötig.**
+Ergebnis ist eine Datei wie `abap2ui5-0.6.0.vsix`.
 
-> `vsce` ist als devDependency enthalten; `npm run vsix` nutzt die lokale Version.
-> Alternativ global: `npm install -g @vscode/vsce` und dann `vsce package`.
+> `vsce` ist als devDependency enthalten, `npm run vsix` nutzt die lokale
+> Version. Alternativ global: `npm install -g @vscode/vsce`.
 
----
+## Lizenz
 
-## Installieren (für dich & Freunde)
-
-Aus der `.vsix`-Datei – zwei Wege:
-
-**Über die Oberfläche:**
-1. Extensions-Panel öffnen (`Ctrl/Cmd + Shift + X`)
-2. Oben auf das `…`-Menü → **Install from VSIX…**
-3. Die `.vsix`-Datei auswählen
-
-**Über das Terminal:**
-```bash
-code --install-extension abap2ui5-demokit-0.0.1.vsix
-```
-
-**Update** = neue `.vsix` mit höherer Versionsnummer (`version` in `package.json`
-hochzählen) bauen und erneut installieren.
-
----
-
-## Deinstallieren
-
-Extensions-Panel → Extension suchen → **Uninstall**. Oder:
-
-```bash
-code --uninstall-extension abap2ui5-local.abap2ui5-demokit
-```
+MIT – siehe [LICENSE](LICENSE).

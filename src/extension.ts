@@ -429,8 +429,8 @@ export function activate(context: vscode.ExtensionContext): void {
         "abap2UI5: gespeicherte SAP-Zugangsdaten gelöscht."
       );
     }),
-    vscode.commands.registerCommand("abap2ui5-demokit.newApp", newApp),
-    vscode.commands.registerCommand("abap2ui5-demokit.openDemokit", () =>
+    vscode.commands.registerCommand("abap2ui5.newApp", newApp),
+    vscode.commands.registerCommand("abap2ui5.openHomepage", () =>
       vscode.env.openExternal(
         vscode.Uri.parse("https://github.com/abap2UI5/abap2UI5")
       )
