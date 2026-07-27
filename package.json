@@ -1,0 +1,114 @@
+{
+  "name": "abap2ui5-demokit",
+  "displayName": "abap2UI5 Demokit Helper",
+  "description": "Helfer-Extension rund um abap2UI5: F9 startet eine z2ui5_if_app-Klasse im eingebetteten Browser-Panel, plus Snippets.",
+  "version": "0.5.0",
+  "publisher": "abap2ui5-local",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Snippets",
+    "Other"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abap2UI5-addons/vscode-extension.git"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "abap2ui5.run",
+        "title": "abap2UI5: App starten (F9)"
+      },
+      {
+        "command": "abap2ui5.resetCredentials",
+        "title": "abap2UI5: Gespeicherte SAP-Zugangsdaten löschen"
+      },
+      {
+        "command": "abap2ui5-demokit.newApp",
+        "title": "abap2UI5: Neue App-Vorlage einfügen"
+      },
+      {
+        "command": "abap2ui5-demokit.openDemokit",
+        "title": "abap2UI5: Demokit im Browser öffnen"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "abap2ui5.run",
+        "key": "f9",
+        "when": "editorTextFocus && editorLangId == abap"
+      }
+    ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "abap2ui5Panel",
+          "title": "abap2UI5",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "abap2ui5Panel": [
+        {
+          "id": "abap2ui5.preview",
+          "name": "App Preview",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "abap2UI5",
+      "properties": {
+        "abap2ui5.launchUrlTemplate": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "URL-Vorlage zum Starten einer abap2UI5-App. Der Platzhalter `{class}` wird durch den (großgeschriebenen) Klassennamen ersetzt.\n\nBeispiel: `https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100`"
+        },
+        "abap2ui5.openMode": {
+          "type": "string",
+          "enum": ["tab", "panel", "external"],
+          "enumDescriptions": [
+            "Eingebettet in einem Editor-Tab, über den lokalen Auth-Proxy (mit Login).",
+            "Eingebettet unten im Panel, über den lokalen Auth-Proxy (mit Login).",
+            "Im Standard-Browser öffnen (nutzt deine bestehende SAP-Session/SSO)."
+          ],
+          "default": "tab",
+          "markdownDescription": "Wie F9 die App öffnet.\n\n- `tab`: eingebettet in einem Editor-Tab. Läuft über einen **lokalen Auth-Proxy**, der deine (einmalig abgefragten) SAP-Zugangsdaten injiziert – kein 401.\n- `panel`: dasselbe, aber unten im Panel-Bereich.\n- `external`: im normalen Browser (nutzt deine bestehende Anmeldung, kein Proxy nötig).\n\nZugangsdaten zurücksetzen: Command **\"abap2UI5: Gespeicherte SAP-Zugangsdaten löschen\"**."
+        },
+        "abap2ui5.reloadOnSave": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Wenn die aktuell im Tab gezeigte App-Klasse aktiviert/gespeichert wird, den eingebetteten Browser-Tab automatisch neu laden (ohne F9)."
+        }
+      }
+    },
+    "snippets": [
+      {
+        "language": "abap",
+        "path": "./snippets/abap2ui5.code-snippets"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "vsix": "vsce package --allow-missing-repository",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

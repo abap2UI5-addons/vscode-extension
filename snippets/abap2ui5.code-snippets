@@ -1,0 +1,32 @@
+{
+  "abap2UI5 App": {
+    "prefix": "z2ui5app",
+    "description": "Grundgerüst einer abap2UI5-App-Klasse",
+    "body": [
+      "CLASS ${1:zcl_my_app} DEFINITION PUBLIC.",
+      "  PUBLIC SECTION.",
+      "    INTERFACES z2ui5_if_app.",
+      "ENDCLASS.",
+      "",
+      "CLASS ${1:zcl_my_app} IMPLEMENTATION.",
+      "  METHOD z2ui5_if_app~main.",
+      "",
+      "    DATA(view) = z2ui5_cl_xml_view=>factory( ).",
+      "    view->label( '${2:Hello abap2UI5}' ).",
+      "    client->view_display( view->stringify( ) ).",
+      "",
+      "  ENDMETHOD.",
+      "ENDCLASS.",
+      "$0"
+    ]
+  },
+  "abap2UI5 Button": {
+    "prefix": "z2ui5button",
+    "description": "abap2UI5 Button mit Event",
+    "body": [
+      "view->button(",
+      "  text  = '${1:Press me}'",
+      "  press = client->_event( '${2:BUTTON_CLICK}' ) )."
+    ]
+  }
+}
