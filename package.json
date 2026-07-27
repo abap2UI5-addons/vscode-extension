@@ -1,8 +1,8 @@
 {
   "name": "abap2ui5",
   "displayName": "abap2UI5",
-  "description": "Entwicklung von abap2UI5-Apps in VS Code: F9 startet eine z2ui5_if_app-Klasse in der eingebetteten Vorschau, Auto-Reload beim Speichern, Snippets.",
-  "version": "0.6.0",
+  "description": "Develop abap2UI5 apps in VS Code: F9 launches a z2ui5_if_app class in an embedded preview, auto-reload on save, snippets.",
+  "version": "0.7.0",
   "publisher": "abap2ui5-local",
   "license": "MIT",
   "private": true,
@@ -23,19 +23,19 @@
     "commands": [
       {
         "command": "abap2ui5.run",
-        "title": "abap2UI5: App starten (F9)"
+        "title": "abap2UI5: Run App (F9)"
       },
       {
         "command": "abap2ui5.resetCredentials",
-        "title": "abap2UI5: Gespeicherte SAP-Zugangsdaten löschen"
+        "title": "abap2UI5: Clear Stored SAP Credentials"
       },
       {
         "command": "abap2ui5.newApp",
-        "title": "abap2UI5: Neue App-Vorlage einfügen"
+        "title": "abap2UI5: Insert New App Template"
       },
       {
         "command": "abap2ui5.openHomepage",
-        "title": "abap2UI5: Projekt auf GitHub öffnen"
+        "title": "abap2UI5: Open Project on GitHub"
       }
     ],
     "keybindings": [
@@ -69,23 +69,23 @@
         "abap2ui5.launchUrlTemplate": {
           "type": "string",
           "default": "",
-          "markdownDescription": "URL-Vorlage zum Starten einer abap2UI5-App. Der Platzhalter `{class}` wird durch den (großgeschriebenen) Klassennamen ersetzt.\n\nBeispiel: `https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100`"
+          "markdownDescription": "URL template used to launch an abap2UI5 app. The `{class}` placeholder is replaced with the (upper-cased) class name.\n\nExample: `https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100`"
         },
         "abap2ui5.openMode": {
           "type": "string",
           "enum": ["tab", "panel", "external"],
           "enumDescriptions": [
-            "Eingebettet in einem Editor-Tab, über den lokalen Auth-Proxy (mit Login).",
-            "Eingebettet unten im Panel, über den lokalen Auth-Proxy (mit Login).",
-            "Im Standard-Browser öffnen (nutzt deine bestehende SAP-Session/SSO)."
+            "Embedded in an editor tab, through the local auth proxy (with login).",
+            "Embedded in the bottom panel, through the local auth proxy (with login).",
+            "Open in the default browser (reuses your existing SAP session/SSO)."
           ],
           "default": "tab",
-          "markdownDescription": "Wie F9 die App öffnet.\n\n- `tab`: eingebettet in einem Editor-Tab. Läuft über einen **lokalen Auth-Proxy**, der deine (einmalig abgefragten) SAP-Zugangsdaten injiziert – kein 401.\n- `panel`: dasselbe, aber unten im Panel-Bereich.\n- `external`: im normalen Browser (nutzt deine bestehende Anmeldung, kein Proxy nötig).\n\nZugangsdaten zurücksetzen: Command **\"abap2UI5: Gespeicherte SAP-Zugangsdaten löschen\"**."
+          "markdownDescription": "How F9 opens the app.\n\n- `tab`: embedded in an editor tab. Runs through a **local auth proxy** that injects your SAP credentials (asked for once) - no 401.\n- `panel`: the same, but in the bottom panel area.\n- `external`: in the normal browser (reuses your existing login, no proxy needed).\n\nTo reset the credentials, run the command **\"abap2UI5: Clear Stored SAP Credentials\"**."
         },
         "abap2ui5.reloadOnSave": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Wenn die aktuell im Tab gezeigte App-Klasse aktiviert/gespeichert wird, den eingebetteten Browser-Tab automatisch neu laden (ohne F9)."
+          "markdownDescription": "When the app class currently shown in the tab is saved/activated, reload the embedded browser tab automatically (without pressing F9)."
         }
       }
     },

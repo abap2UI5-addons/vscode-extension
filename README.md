@@ -1,142 +1,145 @@
-# abap2UI5 für VS Code
+# abap2UI5 for VS Code
 
-VS-Code-Extension für die Entwicklung von **abap2UI5**-Apps: App per **F9**
-starten, direkt daneben im Editor ansehen, beim Speichern automatisch neu laden
-– ohne den Kontextwechsel in den Browser.
+VS Code extension for developing **abap2UI5** apps: launch an app with **F9**,
+see it right next to the source, and have it reload automatically when you save
+— without the context switch to the browser.
 
-Funktioniert mit jedem System, auf dem abap2UI5 läuft (On-Premise oder Cloud);
-gebunden ist die Extension an nichts außer die Launch-URL, die du einmal
-hinterlegst.
+Works with any system running abap2UI5 (on-premise or cloud). The only thing
+tying the extension to a system is the launch URL you configure once.
 
 ## Features
 
-- **F9 startet die App** – Steht der Cursor in einer ABAP-Klasse, die
-  `z2ui5_if_app` implementiert, öffnet **F9** die App in einem eingebetteten
-  Browser neben dem Quelltext. Ist die Klasse *keine* z2ui5-App, verhält sich
-  F9 wie gewohnt (Breakpoint umschalten) – die Taste geht dir also nicht
-  verloren.
-- **Fokus bleibt im Code** – Nach dem Start springt der Cursor zurück an
-  dieselbe Stelle im Quelltext; auch wenn die ladende App den Fokus an sich
-  ziehen will.
-- **Auto-Reload beim Speichern** – Wird die gezeigte App-Klasse gespeichert,
-  lädt die eingebettete Vorschau automatisch neu. Abschaltbar über
+- **F9 runs the app** – With the cursor in an ABAP class that implements
+  `z2ui5_if_app`, **F9** opens the app in an embedded browser next to the
+  source. If the class is *not* a z2ui5 app, F9 behaves as usual (toggle
+  breakpoint), so you don't lose the key.
+- **Focus stays in the code** – After launching, the cursor returns to the same
+  spot in the source, even when the loading app tries to grab focus.
+- **Auto-reload on save** – Saving the class of the app currently shown
+  reloads the embedded preview. Can be turned off with
   `abap2ui5.reloadOnSave`.
-- **Anmeldung ohne 401** – Für die eingebettete Ansicht bringt die Extension
-  einen lokalen Auth-Proxy mit (siehe unten).
-- **Snippets** für ABAP-Dateien: `z2ui5app`, `z2ui5button`.
-- **App-Vorlage einfügen** – Klassen-Skelett für eine neue abap2UI5-App.
+- **Login without a 401** – For the embedded view the extension ships a local
+  auth proxy (see below).
+- **Snippets** for ABAP files: `z2ui5app`, `z2ui5button`.
+- **Insert an app template** – Class skeleton for a new abap2UI5 app.
 
-Alle Befehle findest du über die Command Palette (`Ctrl/Cmd + Shift + P`).
+All commands are available from the Command Palette (`Ctrl/Cmd + Shift + P`).
 
-## Launch-URL einrichten
+## Setting the launch URL
 
-Beim ersten F9 fragt die Extension nach der Launch-URL. `{class}` ist der
-Platzhalter für den Klassennamen:
+On the first F9 the extension asks for the launch URL. `{class}` is the
+placeholder for the class name:
 
 ```
 https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100
 ```
 
-Die URL wird gespeichert und lässt sich jederzeit ändern:
-Settings → `abap2ui5.launchUrlTemplate` (oder direkt in der `settings.json`).
+The URL is stored and can be changed at any time under
+Settings → `abap2ui5.launchUrlTemplate` (or directly in `settings.json`).
 
-## Öffnen-Modus (`abap2ui5.openMode`)
+## Open mode (`abap2ui5.openMode`)
 
-| Modus | Verhalten |
+| Mode | Behaviour |
 | --- | --- |
-| `tab` (Standard) | App eingebettet in einem Editor-Tab neben dem Code, über den lokalen Auth-Proxy |
-| `panel` | Dasselbe, aber unten im Panel-Bereich neben Terminal/Output |
-| `external` | Im normalen Browser (nutzt deine bestehende SAP-Session/SSO, kein Proxy nötig) |
+| `tab` (default) | App embedded in an editor tab next to the code, through the local auth proxy |
+| `panel` | The same, but in the bottom panel area next to Terminal/Output |
+| `external` | In the normal browser (reuses your existing SAP session/SSO, no proxy needed) |
 
-### Wie die Anmeldung im Tab/Panel funktioniert (Auth-Proxy)
+### How the login works in tab/panel mode (auth proxy)
 
-Ein eingebetteter iframe hat **keine** SAP-Session – ein direkter Aufruf würde
-mit **401 Not authorized** enden. Deshalb startet die Extension bei `tab` und
-`panel` einen lokalen Auth-Proxy auf `127.0.0.1`:
+An embedded iframe has **no** SAP session — a direct call would end in a
+**401 Not authorized**. That is why in `tab` and `panel` mode the extension
+starts a local auth proxy on `127.0.0.1`:
 
-1. Beim ersten Start fragt sie **einmalig** SAP-Benutzer und Passwort ab
-   (dieselben wie in ADT). Die Daten liegen im VS Code **SecretStorage**.
-2. Der Proxy hängt an **jeden** Request `Authorization: Basic …` an und leitet
-   ihn an dein System weiter – inklusive UI5-Ressourcen, Cookies, CSRF-Token
-   und Redirects.
-3. Der iframe lädt `http://127.0.0.1:<port>/…`, die App läuft eingebettet,
-   ohne 401.
+1. On the first launch it asks **once** for your SAP user and password (the
+   same ones you use in ADT). They are kept in the VS Code **SecretStorage**.
+2. The proxy attaches `Authorization: Basic …` to **every** request and
+   forwards it to your system — including UI5 resources, cookies, CSRF tokens
+   and redirects.
+3. The iframe loads `http://127.0.0.1:<port>/…`, so the app runs embedded
+   without a 401.
 
-Damit das Einbetten überhaupt erlaubt ist, entfernt der Proxy `X-Frame-Options`
-und die CSP-Direktive `frame-ancestors` aus den Antworten. Selbstsignierte
-HTTPS-Zertifikate werden akzeptiert.
+To make embedding possible at all, the proxy strips `X-Frame-Options` and the
+CSP directive `frame-ancestors` from the responses. Self-signed HTTPS
+certificates are accepted.
 
-> **Voraussetzung:** Das System akzeptiert **Basic Auth**. Reine SSO-/SAML-
-> Anmeldung ohne Basic-Auth-Fallback wird nicht unterstützt – dann `external`
-> verwenden.
+> **Requirement:** the system must accept **basic auth**. Pure SSO/SAML login
+> without a basic-auth fallback is not supported — use `external` in that case.
 >
-> **Zugangsdaten ändern/löschen:** Command *„abap2UI5: Gespeicherte
-> SAP-Zugangsdaten löschen"*. Beim nächsten F9 wird neu gefragt.
+> **Change or delete credentials:** run the command *"abap2UI5: Clear Stored
+> SAP Credentials"*. The next F9 asks again.
 
-## Einstellungen
+## Settings
 
-| Einstellung | Default | Bedeutung |
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `abap2ui5.launchUrlTemplate` | – | URL-Vorlage zum Starten einer App, `{class}` als Platzhalter |
-| `abap2ui5.openMode` | `tab` | `tab`, `panel` oder `external` |
-| `abap2ui5.reloadOnSave` | `true` | Vorschau beim Speichern der gezeigten Klasse neu laden |
+| `abap2ui5.launchUrlTemplate` | – | URL template used to launch an app, `{class}` as the placeholder |
+| `abap2ui5.openMode` | `tab` | `tab`, `panel` or `external` |
+| `abap2ui5.reloadOnSave` | `true` | Reload the preview when the shown class is saved |
 
-## Befehle
+## Commands
 
-| Befehl | Beschreibung |
+| Command | Description |
 | --- | --- |
-| `abap2UI5: App starten (F9)` | Startet die App der aktuellen Klasse |
-| `abap2UI5: Neue App-Vorlage einfügen` | Fügt ein App-Klassen-Skelett ein |
-| `abap2UI5: Gespeicherte SAP-Zugangsdaten löschen` | Löscht Benutzer und Passwort aus dem SecretStorage |
-| `abap2UI5: Projekt auf GitHub öffnen` | Öffnet das abap2UI5-Repository im Browser |
+| `abap2UI5: Run App (F9)` | Launches the app of the current class |
+| `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
+| `abap2UI5: Clear Stored SAP Credentials` | Removes user and password from the SecretStorage |
+| `abap2UI5: Open Project on GitHub` | Opens the abap2UI5 repository in the browser |
 
 ## Installation
 
-Die Extension wird derzeit als `.vsix` verteilt (noch nicht im Marketplace).
+The extension is currently distributed as a `.vsix` (not on the Marketplace
+yet).
 
-**Über die Oberfläche:** Extensions-Panel (`Ctrl/Cmd + Shift + X`) → `…`-Menü →
-**Install from VSIX…** → Datei auswählen.
+**Through the UI:** Extensions panel (`Ctrl/Cmd + Shift + X`) → `…` menu →
+**Install from VSIX…** → pick the file.
 
-**Über das Terminal:**
+**Through the terminal:**
 
 ```bash
-code --install-extension abap2ui5-0.6.0.vsix
+code --install-extension abap2ui5-0.7.0.vsix
 ```
 
-**Update** = neue `.vsix` mit höherer Versionsnummer bauen und erneut
-installieren.
+**Updating** means building a new `.vsix` with a higher version number and
+installing it again.
 
-**Deinstallieren:** Extensions-Panel → Extension suchen → **Uninstall**. Oder:
+**Uninstalling:** Extensions panel → find the extension → **Uninstall**. Or:
 
 ```bash
 code --uninstall-extension abap2ui5-local.abap2ui5
 ```
 
-## Entwickeln
+## Development
 
 ```bash
 npm install
-npm run compile      # baut dist/extension.js mit esbuild
+npm run compile      # builds dist/extension.js with esbuild
 ```
 
-Dieses Repository in VS Code öffnen und **F5** drücken → es startet ein zweites
-VS-Code-Fenster (Extension Development Host) mit geladener Extension.
+Open this repository in VS Code and press **F5** → a second VS Code window
+(Extension Development Host) starts with the extension loaded.
 
-Praktisch während der Entwicklung: `npm run watch` baut bei jeder Änderung neu.
-`npm run lint` prüft die Typen (`tsc --noEmit`).
+Handy while developing: `npm run watch` rebuilds on every change, and
+`npm run lint` type-checks (`tsc --noEmit`).
 
-## Als `.vsix` paketieren
+## Packaging as a `.vsix`
 
 ```bash
 npm install
 npm run vsix
 ```
 
-Ergebnis ist eine Datei wie `abap2ui5-0.6.0.vsix`.
+The result is a file such as `abap2ui5-0.7.0.vsix`.
 
-> `vsce` ist als devDependency enthalten, `npm run vsix` nutzt die lokale
-> Version. Alternativ global: `npm install -g @vscode/vsce`.
+> `vsce` is included as a devDependency, so `npm run vsix` uses the local
+> version. Alternatively install it globally: `npm install -g @vscode/vsce`.
 
-## Lizenz
+## Contributing
 
-MIT – siehe [LICENSE](LICENSE).
+**This project is English-only.** Code, comments, identifiers, commit messages,
+documentation, and every user-facing string in the extension are written in
+English — see [AGENTS.md](AGENTS.md) for the full conventions.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

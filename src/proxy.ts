@@ -3,14 +3,14 @@ import * as https from "https";
 import { URL } from "url";
 
 /**
- * Kleiner lokaler Reverse-Proxy: nimmt Requests auf 127.0.0.1 entgegen und
- * leitet sie an das SAP-System weiter – dabei wird bei JEDEM Request der
- * Basic-Auth-Header injiziert. Dadurch braucht der eingebettete Browser
- * (Webview-iframe) keine eigene Anmeldung und läuft nicht in den 401.
+ * Small local reverse proxy: accepts requests on 127.0.0.1 and forwards them
+ * to the SAP system, injecting the basic-auth header into EVERY request. That
+ * way the embedded browser (webview iframe) needs no login of its own and does
+ * not run into a 401.
  *
- * Alle Pfade werden transparent weitergereicht (UI5-Ressourcen unter
- * /sap/public, /sap/bc/ui5_ui5 usw.), da der iframe root-relative Pfade
- * automatisch an den Proxy schickt.
+ * All paths are forwarded transparently (UI5 resources under /sap/public,
+ * /sap/bc/ui5_ui5 and so on), since the iframe sends root-relative paths to
+ * the proxy automatically.
  */
 export class SapProxy {
   private server?: http.Server;
@@ -18,7 +18,7 @@ export class SapProxy {
   private target?: URL;
   private authHeader?: string;
 
-  /** Startet den Proxy (oder aktualisiert Auth, wenn Ziel gleich bleibt). */
+  /** Starts the proxy (or just refreshes auth if the target stays the same). */
   async start(targetOrigin: string, user: string, pass: string): Promise<number> {
     const target = new URL(targetOrigin);
     this.authHeader = "Basic " + Buffer.from(`${user}:${pass}`).toString("base64");
@@ -50,7 +50,7 @@ export class SapProxy {
     const isHttps = target.protocol === "https:";
     const mod = isHttps ? https : http;
 
-    // eingehende Header übernehmen, Host + Auth überschreiben
+    // Take over the incoming headers, overwrite host + auth
     const headers: http.OutgoingHttpHeaders = { ...req.headers };
     headers.host = target.host;
     headers.authorization = this.authHeader;
@@ -62,14 +62,14 @@ export class SapProxy {
       method: req.method,
       path: req.url,
       headers,
-      rejectUnauthorized: false, // Dev-Systeme haben oft selbst-signierte Zertifikate
+      rejectUnauthorized: false, // dev systems often have self-signed certificates
     };
 
     const proxyReq = mod.request(options, (proxyRes) => {
       const outHeaders: http.OutgoingHttpHeaders = { ...proxyRes.headers };
 
-      // Framing erlauben: der Server verbietet das Einbetten sonst per
-      // X-Frame-Options / CSP frame-ancestors -> iframe bliebe weiß.
+      // Allow framing: otherwise the server forbids embedding via
+      // X-Frame-Options / CSP frame-ancestors -> the iframe would stay blank.
       delete outHeaders["x-frame-options"];
       for (const key of [
         "content-security-policy",
@@ -90,7 +90,7 @@ export class SapProxy {
         }
       }
 
-      // Redirects vom SAP-Host auf den Proxy umschreiben
+      // Rewrite redirects from the SAP host to the proxy
       if (outHeaders.location) {
         outHeaders.location = String(outHeaders.location).replace(
           target.origin,
@@ -98,7 +98,7 @@ export class SapProxy {
         );
       }
 
-      // Cookies auf localhost gültig machen: Domain + Secure entfernen
+      // Make cookies valid on localhost: strip Domain + Secure
       const setCookie = proxyRes.headers["set-cookie"];
       if (setCookie) {
         outHeaders["set-cookie"] = setCookie.map((c) =>
@@ -114,7 +114,7 @@ export class SapProxy {
       if (!res.headersSent) {
         res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
       }
-      res.end("abap2UI5 Proxy-Fehler: " + err.message);
+      res.end("abap2UI5 proxy error: " + err.message);
     });
 
     req.pipe(proxyReq);

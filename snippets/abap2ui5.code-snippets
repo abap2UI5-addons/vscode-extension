@@ -1,7 +1,7 @@
 {
   "abap2UI5 App": {
     "prefix": "z2ui5app",
-    "description": "Grundgerüst einer abap2UI5-App-Klasse",
+    "description": "Skeleton of an abap2UI5 app class",
     "body": [
       "CLASS ${1:zcl_my_app} DEFINITION PUBLIC.",
       "  PUBLIC SECTION.",
@@ -22,7 +22,7 @@
   },
   "abap2UI5 Button": {
     "prefix": "z2ui5button",
-    "description": "abap2UI5 Button mit Event",
+    "description": "abap2UI5 button with event",
     "body": [
       "view->button(",
       "  text  = '${1:Press me}'",

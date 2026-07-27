@@ -10,16 +10,16 @@ const OPEN_MODE_KEY = "openMode";
 const SECRET_USER = "abap2ui5.user";
 const SECRET_PASS = "abap2ui5.pass";
 
-/** Muss in der Klasse vorkommen, damit F9 die App startet. */
+/** Must appear in the class for F9 to launch the app. */
 const APP_INTERFACE_RE = /interfaces\s+z2ui5_if_app/i;
 
-/** Kollabiert doppelte Slashes im Pfad, lässt aber `://` im Protokoll intakt. */
+/** Collapses duplicate slashes in the path but leaves `://` in the protocol intact. */
 function normalizeUrl(url: string): string {
   return url.replace(/(?<!:)\/{2,}/g, "/");
 }
 
 // ---------------------------------------------------------------------------
-// Webview-HTML
+// Webview HTML
 // ---------------------------------------------------------------------------
 
 function escapeHtml(value: string): string {
@@ -32,26 +32,26 @@ function escapeHtml(value: string): string {
 
 function placeholderHtml(): string {
   return `<!DOCTYPE html>
-<html lang="de"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <style>
   body { font-family: var(--vscode-font-family); color: var(--vscode-foreground);
          padding: 12px; }
 </style></head>
 <body>
-  <p>Öffne eine ABAP-Klasse, die <code>z2ui5_if_app</code> implementiert,
-     und drücke <b>F9</b>.</p>
+  <p>Open an ABAP class that implements <code>z2ui5_if_app</code>
+     and press <b>F9</b>.</p>
 </body></html>`;
 }
 
 /**
- * @param frameUrl    URL, die im iframe geladen wird (i. d. R. der Proxy).
- * @param externalUrl echte SAP-URL für den "Extern öffnen"-Button.
+ * @param frameUrl    URL loaded in the iframe (usually the proxy).
+ * @param externalUrl real SAP URL behind the "Open externally" button.
  */
 function htmlForUrl(frameUrl: string, externalUrl: string): string {
   const safeFrame = escapeHtml(frameUrl);
   const safeExternal = escapeHtml(externalUrl);
   return `<!DOCTYPE html>
-<html lang="de"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'none'; frame-src http: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
 <style>
@@ -73,7 +73,7 @@ function htmlForUrl(frameUrl: string, externalUrl: string): string {
 <body>
   <div class="bar">
     <span class="url" id="url" title="${safeExternal}">${safeExternal}</span>
-    <button onclick="openExt()">Extern öffnen</button>
+    <button onclick="openExt()">Open externally</button>
   </div>
   <div class="frame-wrap">
     <iframe id="app" src="${safeFrame}"
@@ -84,12 +84,12 @@ function htmlForUrl(frameUrl: string, externalUrl: string): string {
     const iframe = document.getElementById('app');
     const urlEl = document.getElementById('url');
     function openExt() { vscodeApi.postMessage({ type: 'openExternal' }); }
-    // F9 erneut -> Host schickt 'load'; gleiche URL = Reload, neue URL = Wechsel.
+    // F9 again -> host sends 'load'; same URL = reload, new URL = switch.
     window.addEventListener('message', (e) => {
       const m = e.data || {};
       if (m.type === 'load') {
         if (urlEl) { urlEl.textContent = m.externalUrl; urlEl.title = m.externalUrl; }
-        iframe.src = m.frameUrl; // Neuzuweisung erzwingt das Neuladen des iframes
+        iframe.src = m.frameUrl; // reassigning forces the iframe to reload
       }
     });
   </script>
@@ -97,7 +97,7 @@ function htmlForUrl(frameUrl: string, externalUrl: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Panel-View (unten)
+// Panel view (bottom)
 // ---------------------------------------------------------------------------
 
 class PreviewViewProvider implements vscode.WebviewViewProvider {
@@ -151,18 +151,18 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Tab (Editor-Bereich)
+// Tab (editor area)
 // ---------------------------------------------------------------------------
 
 let appPanel: vscode.WebviewPanel | undefined;
 let appPanelExternalUrl: string | undefined;
 
-// Aktuell im Tab gezeigte App (für Auto-Reload beim Aktivieren/Speichern).
+// App currently shown in the tab (for auto-reload on activate/save).
 let currentClassName: string | undefined;
 let currentFrameUrl: string | undefined;
 let currentExternalUrl: string | undefined;
 
-/** Lädt die im Tab gezeigte App neu, ohne den Fokus zu verschieben. */
+/** Reloads the app shown in the tab without moving the focus. */
 function reloadShownApp(): void {
   if (!appPanel || !currentFrameUrl || !currentExternalUrl) {
     return;
@@ -174,12 +174,12 @@ function reloadShownApp(): void {
   });
 }
 
-// Editor-Position, an die der Fokus nach F9 zurückkehren soll.
+// Editor position the focus should return to after F9.
 let sourceDoc: vscode.TextDocument | undefined;
 let sourceSelection: vscode.Selection | undefined;
 let sourceColumn: vscode.ViewColumn | undefined;
-// Zeitfenster (ms-Timestamp), in dem ein Fokus-Wechsel zur App als
-// automatischer Fokus-Klau gilt und zurückgegeben wird.
+// Time window (ms timestamp) in which a focus switch to the app counts as
+// the app stealing focus automatically, and is handed back.
 let bounceFocusUntil = 0;
 
 function rememberSource(editor: vscode.TextEditor): void {
@@ -202,7 +202,7 @@ async function restoreSourceFocus(): Promise<void> {
 function showInTab(frameUrl: string, externalUrl: string, title: string): void {
   appPanelExternalUrl = externalUrl;
   if (appPanel) {
-    // Bestehender Tab: nur neu laden (bzw. auf neue Klasse wechseln).
+    // Existing tab: just reload (or switch to the new class).
     appPanel.title = title;
     appPanel.reveal(vscode.ViewColumn.Beside, true);
     void appPanel.webview.postMessage({ type: "load", frameUrl, externalUrl });
@@ -217,7 +217,7 @@ function showInTab(frameUrl: string, externalUrl: string, title: string): void {
   appPanel.onDidDispose(() => {
     appPanel = undefined;
   });
-  // Wenn die ladende App kurz nach F9 den Fokus an sich reißt, zurück in den Code.
+  // If the loading app grabs focus shortly after F9, hand it back to the code.
   appPanel.onDidChangeViewState((e) => {
     if (e.webviewPanel.active && Date.now() < bounceFocusUntil) {
       void restoreSourceFocus();
@@ -254,8 +254,8 @@ async function ensureTemplate(): Promise<string | undefined> {
   }
   tpl = (
     (await vscode.window.showInputBox({
-      title: "abap2UI5: Launch-URL festlegen",
-      prompt: "URL-Vorlage mit {class} als Platzhalter",
+      title: "abap2UI5: Set launch URL",
+      prompt: "URL template with {class} as the placeholder",
       value: "https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100",
       ignoreFocusOut: true,
     })) ?? ""
@@ -275,8 +275,8 @@ async function ensureCredentials(
 
   if (!user) {
     user = await vscode.window.showInputBox({
-      title: "abap2UI5: SAP-Benutzer",
-      prompt: "Benutzer für die Anmeldung am SAP-System (wie in ADT)",
+      title: "abap2UI5: SAP user",
+      prompt: "User for logging on to the SAP system (same as in ADT)",
       ignoreFocusOut: true,
     });
     if (!user) {
@@ -287,8 +287,8 @@ async function ensureCredentials(
 
   if (!pass) {
     pass = await vscode.window.showInputBox({
-      title: "abap2UI5: SAP-Passwort",
-      prompt: "Passwort (wird sicher im VS Code SecretStorage abgelegt)",
+      title: "abap2UI5: SAP password",
+      prompt: "Password (stored securely in the VS Code SecretStorage)",
       password: true,
       ignoreFocusOut: true,
     });
@@ -302,7 +302,7 @@ async function ensureCredentials(
 }
 
 // ---------------------------------------------------------------------------
-// Kommando
+// Command
 // ---------------------------------------------------------------------------
 
 async function runApp(
@@ -312,7 +312,7 @@ async function runApp(
 ): Promise<void> {
   const editor = vscode.window.activeTextEditor;
 
-  // Kein ABAP-Editor oder keine z2ui5-App: normales F9-Verhalten beibehalten.
+  // Not an ABAP editor or not a z2ui5 app: keep the normal F9 behaviour.
   if (
     !editor ||
     editor.document.languageId !== "abap" ||
@@ -341,7 +341,7 @@ async function runApp(
     return;
   }
 
-  // tab / panel: über den Auth-Proxy laden, damit die Anmeldung greift.
+  // tab / panel: load through the auth proxy so the login takes effect.
   const creds = await ensureCredentials(context);
   if (!creds) {
     return;
@@ -354,18 +354,18 @@ async function runApp(
     frameUrl = externalUrl.replace(origin, proxy.origin);
   } catch (err) {
     vscode.window.showErrorMessage(
-      "abap2UI5: Proxy konnte nicht gestartet werden – " +
+      "abap2UI5: could not start the proxy - " +
         (err instanceof Error ? err.message : String(err))
     );
     return;
   }
 
-  // Cursor-Position merken; Fenster öffnen, in dem ein Fokus-Klau der
-  // ladenden App zurückgegeben wird (der Inhalt lädt asynchron).
+  // Remember the cursor position; open the window in which focus stolen by
+  // the loading app is handed back (the content loads asynchronously).
   rememberSource(editor);
   bounceFocusUntil = Date.now() + 2500;
 
-  // Für Auto-Reload beim Aktivieren/Speichern merken.
+  // Remember for auto-reload on activate/save.
   currentClassName = className;
   currentFrameUrl = frameUrl;
   currentExternalUrl = externalUrl;
@@ -376,12 +376,12 @@ async function runApp(
     showInTab(frameUrl, externalUrl, `abap2UI5: ${className}`);
   }
 
-  // Fokus sofort zurück in den Quelltext an dieselbe Stelle.
+  // Focus straight back to the same spot in the source.
   await restoreSourceFocus();
 }
 
 // ---------------------------------------------------------------------------
-// Aktivierung
+// Activation
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -397,7 +397,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("abap2ui5.run", () =>
       runApp(context, proxy, provider)
     ),
-    // Auto-Reload: Klasse der gezeigten App aktiviert/gespeichert -> Tab neu laden.
+    // Auto-reload: shown app's class activated/saved -> reload the tab.
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (!appPanel || doc.languageId !== "abap") {
         return;
@@ -414,7 +414,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (currentClassName && resolveClassName(doc) !== currentClassName) {
         return;
       }
-      // Fokus im Code halten, falls die neu ladende App ihn greifen will.
+      // Keep focus in the code in case the reloading app tries to grab it.
       const ed = vscode.window.activeTextEditor;
       if (ed && ed.document === doc) {
         rememberSource(ed);
@@ -426,7 +426,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await context.secrets.delete(SECRET_USER);
       await context.secrets.delete(SECRET_PASS);
       vscode.window.showInformationMessage(
-        "abap2UI5: gespeicherte SAP-Zugangsdaten gelöscht."
+        "abap2UI5: stored SAP credentials deleted."
       );
     }),
     vscode.commands.registerCommand("abap2ui5.newApp", newApp),
@@ -457,12 +457,12 @@ ENDCLASS.
 async function newApp(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    vscode.window.showWarningMessage("Bitte zuerst eine ABAP-Datei öffnen.");
+    vscode.window.showWarningMessage("Please open an ABAP file first.");
     return;
   }
   await editor.edit((b) => b.insert(editor.selection.active, APP_TEMPLATE));
 }
 
 export function deactivate(): void {
-  // Proxy wird über context.subscriptions disposed
+  // The proxy is disposed via context.subscriptions
 }

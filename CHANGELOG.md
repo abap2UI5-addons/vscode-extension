@@ -1,87 +1,97 @@
 # Changelog
 
+## 0.7.0
+
+- **The project is now English-only.** README, changelog, code comments and
+  every user-facing string (command titles, settings descriptions, input
+  prompts, error messages, the webview placeholder) were translated from
+  German to English. The convention is written down in
+  [AGENTS.md](AGENTS.md) so it stays that way.
+- Command titles changed accordingly, e.g. "abap2UI5: App starten (F9)" →
+  `abap2UI5: Run App (F9)`. Command IDs, setting keys and behaviour are
+  unchanged, so your `settings.json` and any custom keybindings keep working.
+
 ## 0.6.0
 
-- **Umbenannt**: Die Extension heißt jetzt schlicht **abap2UI5** statt
-  „abap2UI5 Demokit Helper". Sie war nie an den Demokit gebunden – der Name
-  stammte nur aus dem Repository, in dem sie ursprünglich lag. Eigenes
-  Repository: <https://github.com/abap2UI5-addons/vscode-extension>.
-- README überarbeitet: beschreibt die Extension als allgemeines Werkzeug für
-  die abap2UI5-Entwicklung, mit Tabellen für Einstellungen und Befehle.
-- Command-IDs vereinheitlicht auf das `abap2ui5.`-Präfix:
+- **Renamed**: the extension is now simply **abap2UI5** instead of "abap2UI5
+  Demokit Helper". It was never tied to the demokit — the name only came from
+  the repository it originally lived in. It now has its own repository:
+  <https://github.com/abap2UI5-addons/vscode-extension>.
+- README reworked: describes the extension as a general tool for abap2UI5
+  development, with tables for settings and commands.
+- Command IDs unified under the `abap2ui5.` prefix:
   `abap2ui5-demokit.newApp` → `abap2ui5.newApp`,
-  `abap2ui5-demokit.openDemokit` → `abap2ui5.openHomepage`.
-  Die Titel in der Command Palette bleiben gleich (bis auf „Demokit im Browser
-  öffnen" → „Projekt auf GitHub öffnen", was schon immer das abap2UI5-Repo
-  geöffnet hat).
+  `abap2ui5-demokit.openDemokit` → `abap2ui5.openHomepage`. The latter has
+  always opened the abap2UI5 repository, and its title now says so.
 
-> **Beim Update beachten:** Mit dem Namen ändert sich die Extension-ID von
-> `abap2ui5-local.abap2ui5-demokit` auf `abap2ui5-local.abap2ui5`. VS Code
-> erkennt die neue `.vsix` daher als eigenständige Extension – die alte einmalig
-> deinstallieren:
-> `code --uninstall-extension abap2ui5-local.abap2ui5-demokit`.
-> Deine Einstellungen (`abap2ui5.*`) bleiben erhalten, sie hängen an der
-> `settings.json`, nicht an der Extension-ID. Die im SecretStorage abgelegten
-> SAP-Zugangsdaten hängen dagegen an der ID und werden beim ersten F9 nach dem
-> Update einmalig neu abgefragt.
+> **When updating:** the rename changes the extension ID from
+> `abap2ui5-local.abap2ui5-demokit` to `abap2ui5-local.abap2ui5`. VS Code
+> therefore treats the new `.vsix` as a separate extension — uninstall the old
+> one once: `code --uninstall-extension abap2ui5-local.abap2ui5-demokit`.
+> Your settings (`abap2ui5.*`) survive, they live in `settings.json` and not on
+> the extension ID. The SAP credentials in the SecretStorage do hang off the
+> ID, so they are asked for once more on the first F9 after the update.
 
 ## 0.5.0
 
-- **Auto-Reload beim Aktivieren:** Wird die im Tab gezeigte App-Klasse
-  gespeichert/aktiviert, lädt der eingebettete Browser automatisch neu –
-  ohne F9. Abschaltbar über `abap2ui5.reloadOnSave` (Default: an).
+- **Auto-reload on activation:** saving/activating the app class shown in the
+  tab reloads the embedded browser automatically — no F9 needed. Can be turned
+  off with `abap2ui5.reloadOnSave` (default: on).
 
 ## 0.4.2
 
-- Fix: Cursor bleibt nach F9 wirklich im Quelltext. Die ladende UI5-App zieht
-  den Fokus asynchron an sich – die Extension fängt das jetzt für ein kurzes
-  Zeitfenster ab (`onDidChangeViewState`) und gibt den Fokus in den Code zurück.
+- Fix: after F9 the cursor really does stay in the source. The loading UI5 app
+  pulls focus asynchronously — the extension now catches that for a short time
+  window (`onDidChangeViewState`) and hands focus back to the code.
 
 ## 0.4.1
 
-- F9 gibt den Fokus nach dem Start/Reload wieder an den Quelltext zurück –
-  der Cursor bleibt an derselben Stelle, du kannst direkt weiterschreiben.
+- After a launch or reload, F9 returns focus to the source — the cursor stays
+  where it was and you can keep typing right away.
 
 ## 0.4.0
 
-- **F9 aktualisiert** jetzt zuverlässig den bestehenden Tab/Panel (Reload der
-  App), statt einen neuen zu öffnen. Bei einer anderen Klasse wechselt der
-  bestehende Tab auf die neue App. Reload läuft per Nachricht an den iframe.
+- **F9 now reliably refreshes** the existing tab/panel (reloading the app)
+  instead of opening a new one. For a different class the existing tab switches
+  to the new app. The reload runs as a message to the iframe.
 
 ## 0.3.1
 
-- Fix: leere/weiße App im Tab – der Proxy entfernt jetzt `X-Frame-Options`
-  und die CSP-Direktive `frame-ancestors` aus den SAP-Antworten, sodass der
-  Browser das Einbetten im iframe zulässt.
+- Fix: blank/white app in the tab — the proxy now strips `X-Frame-Options` and
+  the CSP directive `frame-ancestors` from the SAP responses, so the browser
+  allows embedding in the iframe.
 
 ## 0.3.0
 
-- **Eingebettete App mit Anmeldung** über einen lokalen Auth-Proxy:
-  F9 zeigt die App im Editor-Tab (oder Panel), der Proxy injiziert die
-  SAP-Zugangsdaten – kein 401 mehr.
-- `abap2ui5.openMode` erweitert: `tab` (neuer Default), `panel`, `external`
-- Zugangsdaten werden einmalig abgefragt und im SecretStorage gespeichert
-- Neuer Command: "abap2UI5: Gespeicherte SAP-Zugangsdaten löschen"
-- Proxy leitet UI5-Ressourcen, Cookies, CSRF und Redirects transparent weiter;
-  selbst-signierte HTTPS-Zertifikate werden akzeptiert
+- **Embedded app with login** through a local auth proxy: F9 shows the app in
+  an editor tab (or panel) and the proxy injects the SAP credentials — no more
+  401.
+- `abap2ui5.openMode` extended: `tab` (the new default), `panel`, `external`
+- Credentials are asked for once and kept in the SecretStorage
+- New command: "abap2UI5: Clear Stored SAP Credentials"
+- The proxy forwards UI5 resources, cookies, CSRF and redirects transparently;
+  self-signed HTTPS certificates are accepted
 
 ## 0.2.0
 
-- Neue Einstellung `abap2ui5.openMode` (`external` | `panel`), Default `external`
-  - `external`: F9 öffnet die App im normalen Browser (nutzt SAP-Session/SSO)
-  - `panel`: eingebettet im Panel (nur ohne interaktive Anmeldung, sonst 401)
-- URL-Normalisierung: doppelte Slashes im Pfad werden entfernt
+- New setting `abap2ui5.openMode` (`external` | `panel`), default `external`
+  - `external`: F9 opens the app in the normal browser (uses the SAP
+    session/SSO)
+  - `panel`: embedded in the panel (only without interactive login, otherwise
+    401)
+- URL normalization: duplicate slashes in the path are removed
 
 ## 0.1.0
 
-- **F9** startet eine `z2ui5_if_app`-Klasse im eingebetteten Browser-Panel unten
-- Neue Einstellung `abap2ui5.launchUrlTemplate` (Platzhalter `{class}`)
-- Panel-View "abap2UI5 / App Preview" mit "Extern öffnen"-Fallback
-- F9 auf Nicht-App-ABAP-Dateien: normales Breakpoint-Verhalten bleibt erhalten
+- **F9** launches a `z2ui5_if_app` class in the embedded browser panel at the
+  bottom
+- New setting `abap2ui5.launchUrlTemplate` (placeholder `{class}`)
+- Panel view "abap2UI5 / App Preview" with an "Open externally" fallback
+- F9 on non-app ABAP files keeps the normal breakpoint behaviour
 
 ## 0.0.1
 
-- Erste Version
-- Command: "abap2UI5: Neue App-Vorlage einfügen"
-- Command: "abap2UI5: Demokit im Browser öffnen"
+- First version
+- Command: "abap2UI5: Insert New App Template"
+- Command: "abap2UI5: Open Demokit in Browser" (renamed in 0.6.0)
 - Snippets: `z2ui5app`, `z2ui5button`
