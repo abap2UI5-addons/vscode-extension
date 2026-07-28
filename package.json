@@ -2,16 +2,28 @@
   "name": "abap2ui5",
   "displayName": "abap2UI5",
   "description": "Develop abap2UI5 apps in VS Code: F9 launches a z2ui5_if_app class in an embedded preview, auto-reload on save, snippets.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "abap2ui5-local",
   "license": "MIT",
   "private": true,
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1c2b3a",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Snippets",
     "Other"
+  ],
+  "keywords": [
+    "abap",
+    "abap2UI5",
+    "UI5",
+    "SAP",
+    "preview"
   ],
   "repository": {
     "type": "git",
@@ -23,7 +35,18 @@
     "commands": [
       {
         "command": "abap2ui5.run",
-        "title": "abap2UI5: Run App (F9)"
+        "title": "abap2UI5: Run App (F9)",
+        "icon": "$(play)"
+      },
+      {
+        "command": "abap2ui5.reload",
+        "title": "abap2UI5: Reload Preview",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "abap2ui5.setLaunchUrl",
+        "title": "abap2UI5: Set Launch URL",
+        "icon": "$(link)"
       },
       {
         "command": "abap2ui5.resetCredentials",
@@ -38,6 +61,22 @@
         "title": "abap2UI5: Open Project on GitHub"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "abap2ui5.run",
+          "when": "resourceLangId == abap",
+          "group": "navigation@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "abap2ui5.reload",
+          "when": "view == abap2ui5.preview",
+          "group": "navigation@1"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "abap2ui5.run",

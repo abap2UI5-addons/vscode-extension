@@ -18,6 +18,12 @@ tying the extension to a system is the launch URL you configure once.
 - **Auto-reload on save** – Saving the class of the app currently shown
   reloads the embedded preview. Can be turned off with
   `abap2ui5.reloadOnSave`.
+- **Preview toolbar** – Class name, system URL, status dot and buttons for
+  reload and "open externally". Themed with your VS Code colour theme.
+- **Device widths** – Switch the preview between desktop, tablet (834px) and
+  phone (414px) to check a responsive app without leaving the editor.
+- **Status bar** – While an app is running the status bar shows the class;
+  clicking it reloads the preview.
 - **Login without a 401** – For the embedded view the extension ships a local
   auth proxy (see below).
 - **Snippets** for ABAP files: `z2ui5app`, `z2ui5button`.
@@ -27,7 +33,8 @@ All commands are available from the Command Palette (`Ctrl/Cmd + Shift + P`).
 
 ## Setting the launch URL
 
-On the first F9 the extension asks for the launch URL. `{class}` is the
+On the first F9 the extension asks for the launch URL — the command
+*"abap2UI5: Set Launch URL"* asks again at any time. `{class}` is the
 placeholder for the class name:
 
 ```
@@ -82,6 +89,8 @@ certificates are accepted.
 | Command | Description |
 | --- | --- |
 | `abap2UI5: Run App (F9)` | Launches the app of the current class |
+| `abap2UI5: Reload Preview` | Reloads the app currently shown |
+| `abap2UI5: Set Launch URL` | Sets (or changes) the launch URL template |
 | `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
 | `abap2UI5: Clear Stored SAP Credentials` | Removes user and password from the SecretStorage |
 | `abap2UI5: Open Project on GitHub` | Opens the abap2UI5 repository in the browser |
@@ -97,7 +106,7 @@ yet).
 **Through the terminal:**
 
 ```bash
-code --install-extension abap2ui5-0.7.0.vsix
+code --install-extension abap2ui5-0.8.0.vsix
 ```
 
 **Updating** means building a new `.vsix` with a higher version number and
@@ -129,7 +138,7 @@ npm install
 npm run vsix
 ```
 
-The result is a file such as `abap2ui5-0.7.0.vsix`.
+The result is a file such as `abap2ui5-0.8.0.vsix`.
 
 > `vsce` is included as a devDependency, so `npm run vsix` uses the local
 > version. Alternatively install it globally: `npm install -g @vscode/vsce`.
