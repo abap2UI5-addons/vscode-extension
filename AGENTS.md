@@ -59,11 +59,13 @@ The `.vsix` is not committed; users download it from the GitHub release.
 Releasing is a tag:
 
 1. Bump `version` in `package.json` and add the matching `CHANGELOG.md` section.
-2. `git tag v<version> && git push origin v<version>`.
+2. Either run the **Release** workflow from the Actions tab (it tags
+   `v<version>` itself) or push the tag by hand:
+   `git tag v<version> && git push origin v<version>`.
 
-`release.yml` verifies that the tag matches `package.json`, builds the `.vsix`
-and attaches it to the release, using that version's changelog section as the
-release notes. **The changelog heading has to be exactly `## <version>`** — the
+`release.yml` verifies that tag and `package.json` agree, refuses a version
+that is already released, builds the `.vsix` and attaches it to the release,
+using that version's changelog section as the release notes. **The changelog heading has to be exactly `## <version>`** — the
 notes are extracted by matching that line, and a mismatch silently produces an
 empty release body (the workflow falls back to a placeholder).
 

@@ -152,17 +152,22 @@ locally.
 ## Releasing
 
 Bump `version` in `package.json`, add the matching `CHANGELOG.md` section, then
-tag the commit:
+either
 
-```bash
-git tag v0.8.0
-git push origin v0.8.0
-```
+- run the **Release** workflow from the Actions tab — it tags the current
+  commit with `v<version>` and releases it, or
+- tag the commit yourself:
 
-The `Release` workflow builds the `.vsix`, creates the GitHub release and
+  ```bash
+  git tag v0.8.0
+  git push origin v0.8.0
+  ```
+
+Either way the workflow builds the `.vsix`, creates the GitHub release and
 attaches the file, with the changelog section of that version as the release
-notes. The tag has to match the version in `package.json`, otherwise the run
-fails on purpose.
+notes. Tag and `package.json` have to agree, otherwise the run fails on
+purpose — and a version that is already released is refused instead of
+overwritten.
 
 ## Contributing
 
