@@ -25,6 +25,11 @@ A visual pass over everything the extension shows.
 - **Save toast:** reloading after a save says so in the preview, so a slow
   round trip is not mistaken for nothing happening.
 - Extension icon, tab icon and panel icon reworked.
+- **The `.vsix` is now a download.** Every release attaches the packaged
+  extension to its
+  [GitHub release](https://github.com/abap2UI5-addons/vscode-extension/releases/latest),
+  so installing no longer means cloning and building. Every push and pull
+  request also builds one as a CI artifact.
 - Internal: the webview HTML moved to `src/webview.ts` and the inline scripts
   now run under a CSP nonce instead of `unsafe-inline`.
 

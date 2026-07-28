@@ -1,0 +1,82 @@
+name: Release
+
+# Tag a commit to publish: git tag v0.8.0 && git push origin v0.8.0
+# The tag must match the version in package.json, otherwise the run fails.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Read the version from the manifest
+        id: meta
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "vsix=abap2ui5-$version.vsix" >> "$GITHUB_OUTPUT"
+
+      - name: Check that the tag matches the manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="${{ steps.meta.outputs.version }}"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.vsix }}
+          path: ${{ steps.meta.outputs.vsix }}
+          if-no-files-found: error
+
+      # Release notes come from the matching CHANGELOG.md section.
+      - name: Collect the release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="${{ steps.meta.outputs.version }}"
+          awk -v header="## $version" '
+            $0 == header { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG.md section for $version - see CHANGELOG.md." > release-notes.md
+          fi
+          {
+            echo ""
+            echo "## Installation"
+            echo ""
+            echo '```bash'
+            echo "code --install-extension ${{ steps.meta.outputs.vsix }}"
+            echo '```'
+            echo ""
+            echo "Or: Extensions panel → \`…\` menu → **Install from VSIX…**"
+          } >> release-notes.md
+
+      - name: Create the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.meta.outputs.vsix }}" \
+            --title "abap2UI5 ${{ steps.meta.outputs.version }}" \
+            --notes-file release-notes.md

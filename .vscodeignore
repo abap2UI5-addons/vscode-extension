@@ -1,4 +1,5 @@
 .vscode/**
+.github/**
 src/**
 AGENTS.md
 node_modules/**
