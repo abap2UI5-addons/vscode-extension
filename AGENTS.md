@@ -33,12 +33,14 @@ find a German string anywhere, it is a leftover — translate it.
 | `snippets/` | ABAP snippets contributed to the editor |
 | `media/` | Icons: `icon.svg` (panel), `icon-light/dark.svg` (preview tab), `icon.png` (gallery) |
 | `esbuild.js` | Bundles `src/extension.ts` into `dist/extension.js` |
+| `.github/workflows/` | `ci.yml` builds every push and PR, `release.yml` publishes a tagged `.vsix` |
 
 `dist/`, `node_modules/` and `*.vsix` are build output and are not committed.
 
 ## Build and verify
 
-Run all three before pushing — there is currently no CI to catch what you miss:
+Run all three before pushing. CI runs the same commands on every push and pull
+request, so a failure there means you skipped this:
 
 ```bash
 npm install
@@ -46,6 +48,24 @@ npm run lint      # tsc --noEmit
 npm run package   # production esbuild
 npm run vsix      # vsce package, catches manifest errors
 ```
+
+CI installs with `npm ci`, so `package-lock.json` has to stay in sync with
+`package.json` — a lockfile left behind fails the build before anything else
+runs.
+
+## Releasing
+
+The `.vsix` is not committed; users download it from the GitHub release.
+Releasing is a tag:
+
+1. Bump `version` in `package.json` and add the matching `CHANGELOG.md` section.
+2. `git tag v<version> && git push origin v<version>`.
+
+`release.yml` verifies that the tag matches `package.json`, builds the `.vsix`
+and attaches it to the release, using that version's changelog section as the
+release notes. **The changelog heading has to be exactly `## <version>`** — the
+notes are extracted by matching that line, and a mismatch silently produces an
+empty release body (the workflow falls back to a placeholder).
 
 ## Conventions
 

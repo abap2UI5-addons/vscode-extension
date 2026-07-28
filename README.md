@@ -97,8 +97,10 @@ certificates are accepted.
 
 ## Installation
 
-The extension is currently distributed as a `.vsix` (not on the Marketplace
-yet).
+The extension is distributed as a `.vsix` (not on the Marketplace yet).
+Download the file from the
+[latest release](https://github.com/abap2UI5-addons/vscode-extension/releases/latest)
+— or build it yourself, see *Packaging* below.
 
 **Through the UI:** Extensions panel (`Ctrl/Cmd + Shift + X`) → `…` menu →
 **Install from VSIX…** → pick the file.
@@ -142,6 +144,25 @@ The result is a file such as `abap2ui5-0.8.0.vsix`.
 
 > `vsce` is included as a devDependency, so `npm run vsix` uses the local
 > version. Alternatively install it globally: `npm install -g @vscode/vsce`.
+
+Every push and pull request builds the same `.vsix` in CI and attaches it to
+the run as an artifact — handy for trying out a branch without building it
+locally.
+
+## Releasing
+
+Bump `version` in `package.json`, add the matching `CHANGELOG.md` section, then
+tag the commit:
+
+```bash
+git tag v0.8.0
+git push origin v0.8.0
+```
+
+The `Release` workflow builds the `.vsix`, creates the GitHub release and
+attaches the file, with the changelog section of that version as the release
+notes. The tag has to match the version in `package.json`, otherwise the run
+fails on purpose.
 
 ## Contributing
 
