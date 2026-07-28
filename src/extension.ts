@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { URL } from "url";
 import { SapProxy } from "./proxy";
+import { createNonce, previewHtml, shortUrl, welcomeHtml } from "./webview";
 
 const CONFIG_SECTION = "abap2ui5";
 const TEMPLATE_KEY = "launchUrlTemplate";
@@ -18,82 +19,30 @@ function normalizeUrl(url: string): string {
   return url.replace(/(?<!:)\/{2,}/g, "/");
 }
 
-// ---------------------------------------------------------------------------
-// Webview HTML
-// ---------------------------------------------------------------------------
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+/** Everything needed to show (and later reload) one app. */
+interface AppTarget {
+  className: string;
+  frameUrl: string;
+  externalUrl: string;
 }
 
-function placeholderHtml(): string {
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground);
-         padding: 12px; }
-</style></head>
-<body>
-  <p>Open an ABAP class that implements <code>z2ui5_if_app</code>
-     and press <b>F9</b>.</p>
-</body></html>`;
+/** Message posted into a preview webview to (re)load an app. */
+function loadMessage(target: AppTarget, reason?: string) {
+  return {
+    type: "load" as const,
+    className: target.className,
+    frameUrl: target.frameUrl,
+    externalUrl: target.externalUrl,
+    shortUrl: shortUrl(target.externalUrl),
+    reason,
+  };
 }
 
-/**
- * @param frameUrl    URL loaded in the iframe (usually the proxy).
- * @param externalUrl real SAP URL behind the "Open externally" button.
- */
-function htmlForUrl(frameUrl: string, externalUrl: string): string {
-  const safeFrame = escapeHtml(frameUrl);
-  const safeExternal = escapeHtml(externalUrl);
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; frame-src http: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-<style>
-  html, body { margin: 0; padding: 0; height: 100%; }
-  body { display: flex; flex-direction: column;
-         font-family: var(--vscode-font-family); color: var(--vscode-foreground); }
-  .bar { display: flex; align-items: center; gap: 8px; padding: 4px 8px;
-         border-bottom: 1px solid var(--vscode-panel-border);
-         background: var(--vscode-panel-background); font-size: 12px; }
-  .bar .url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-              opacity: 0.8; }
-  .bar button { font: inherit; cursor: pointer;
-                color: var(--vscode-button-foreground);
-                background: var(--vscode-button-background);
-                border: none; padding: 2px 10px; border-radius: 2px; }
-  .frame-wrap { flex: 1; position: relative; }
-  iframe { border: 0; width: 100%; height: 100%; background: #fff; }
-</style></head>
-<body>
-  <div class="bar">
-    <span class="url" id="url" title="${safeExternal}">${safeExternal}</span>
-    <button onclick="openExt()">Open externally</button>
-  </div>
-  <div class="frame-wrap">
-    <iframe id="app" src="${safeFrame}"
-            sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-modals allow-downloads"></iframe>
-  </div>
-  <script>
-    const vscodeApi = acquireVsCodeApi();
-    const iframe = document.getElementById('app');
-    const urlEl = document.getElementById('url');
-    function openExt() { vscodeApi.postMessage({ type: 'openExternal' }); }
-    // F9 again -> host sends 'load'; same URL = reload, new URL = switch.
-    window.addEventListener('message', (e) => {
-      const m = e.data || {};
-      if (m.type === 'load') {
-        if (urlEl) { urlEl.textContent = m.externalUrl; urlEl.title = m.externalUrl; }
-        iframe.src = m.frameUrl; // reassigning forces the iframe to reload
-      }
-    });
-  </script>
-</body></html>`;
+function hasLaunchUrl(): boolean {
+  return !!vscode.workspace
+    .getConfiguration(CONFIG_SECTION)
+    .get<string>(TEMPLATE_KEY, "")
+    .trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -104,48 +53,59 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = "abap2ui5.preview";
 
   private view?: vscode.WebviewView;
-  private frameUrl?: string;
-  private externalUrl?: string;
-  private htmlSet = false;
+  private target?: AppTarget;
+  private previewRendered = false;
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
-    this.htmlSet = false;
+    this.previewRendered = false;
     view.webview.options = { enableScripts: true };
-    view.webview.onDidReceiveMessage((msg) => {
-      if (msg?.type === "openExternal" && this.externalUrl) {
-        vscode.env.openExternal(vscode.Uri.parse(this.externalUrl));
-      }
-    });
-    this.renderOrReload();
+    view.webview.onDidReceiveMessage((msg) => handleWebviewMessage(msg, this.target));
+    this.render();
   }
 
-  async show(frameUrl: string, externalUrl: string): Promise<void> {
-    this.frameUrl = frameUrl;
-    this.externalUrl = externalUrl;
+  async show(target: AppTarget, reason?: string): Promise<void> {
+    this.target = target;
     await vscode.commands.executeCommand(`${PreviewViewProvider.viewId}.focus`);
-    this.renderOrReload();
+    this.render(reason);
   }
 
-  private renderOrReload(): void {
+  /** Reloads the app already shown, without stealing the focus. */
+  reload(reason?: string): void {
+    if (this.view && this.previewRendered && this.target) {
+      void this.view.webview.postMessage(loadMessage(this.target, reason));
+    }
+  }
+
+  get isShowing(): boolean {
+    return !!this.view && this.previewRendered;
+  }
+
+  /** Re-renders the empty state, e.g. after the launch URL was configured. */
+  refreshWelcome(): void {
+    if (this.view && !this.previewRendered) {
+      this.render();
+    }
+  }
+
+  private render(reason?: string): void {
     const view = this.view;
     if (!view) {
       return;
     }
-    if (!this.frameUrl || !this.externalUrl) {
-      view.webview.html = placeholderHtml();
-      this.htmlSet = false;
+    if (!this.target) {
+      view.webview.html = welcomeHtml({
+        nonce: createNonce(),
+        hasLaunchUrl: hasLaunchUrl(),
+      });
+      this.previewRendered = false;
       return;
     }
-    if (!this.htmlSet) {
-      view.webview.html = htmlForUrl(this.frameUrl, this.externalUrl);
-      this.htmlSet = true;
+    if (!this.previewRendered) {
+      view.webview.html = previewHtml({ ...this.target, nonce: createNonce() });
+      this.previewRendered = true;
     } else {
-      void view.webview.postMessage({
-        type: "load",
-        frameUrl: this.frameUrl,
-        externalUrl: this.externalUrl,
-      });
+      void view.webview.postMessage(loadMessage(this.target, reason));
     }
   }
 }
@@ -155,23 +115,47 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
 // ---------------------------------------------------------------------------
 
 let appPanel: vscode.WebviewPanel | undefined;
-let appPanelExternalUrl: string | undefined;
 
-// App currently shown in the tab (for auto-reload on activate/save).
-let currentClassName: string | undefined;
-let currentFrameUrl: string | undefined;
-let currentExternalUrl: string | undefined;
+/** App currently shown (tab or panel) — the target of reload-on-save. */
+let currentTarget: AppTarget | undefined;
 
-/** Reloads the app shown in the tab without moving the focus. */
-function reloadShownApp(): void {
-  if (!appPanel || !currentFrameUrl || !currentExternalUrl) {
+let statusItem: vscode.StatusBarItem | undefined;
+
+function updateStatusItem(): void {
+  if (!statusItem) {
     return;
   }
-  void appPanel.webview.postMessage({
-    type: "load",
-    frameUrl: currentFrameUrl,
-    externalUrl: currentExternalUrl,
-  });
+  if (!currentTarget) {
+    statusItem.hide();
+    return;
+  }
+  statusItem.text = `$(play-circle) ${currentTarget.className}`;
+  statusItem.tooltip = new vscode.MarkdownString(
+    `**abap2UI5 preview**\n\n${currentTarget.externalUrl}\n\nClick to reload.`
+  );
+  statusItem.show();
+}
+
+/** Reloads the app shown in tab or panel without moving the focus. */
+function reloadShownApp(provider: PreviewViewProvider, reason?: string): void {
+  if (!currentTarget) {
+    return;
+  }
+  if (appPanel) {
+    void appPanel.webview.postMessage(loadMessage(currentTarget, reason));
+  }
+  provider.reload(reason);
+}
+
+function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void {
+  const message = msg as { type?: string; command?: string } | undefined;
+  if (message?.type === "openExternal" && target) {
+    void vscode.env.openExternal(vscode.Uri.parse(target.externalUrl));
+    return;
+  }
+  if (message?.type === "command" && message.command?.startsWith(`${CONFIG_SECTION}.`)) {
+    void vscode.commands.executeCommand(message.command);
+  }
 }
 
 // Editor position the focus should return to after F9.
@@ -199,13 +183,13 @@ async function restoreSourceFocus(): Promise<void> {
   });
 }
 
-function showInTab(frameUrl: string, externalUrl: string, title: string): void {
-  appPanelExternalUrl = externalUrl;
+function showInTab(context: vscode.ExtensionContext, target: AppTarget): void {
+  const title = `${target.className} · abap2UI5`;
   if (appPanel) {
     // Existing tab: just reload (or switch to the new class).
     appPanel.title = title;
     appPanel.reveal(vscode.ViewColumn.Beside, true);
-    void appPanel.webview.postMessage({ type: "load", frameUrl, externalUrl });
+    void appPanel.webview.postMessage(loadMessage(target));
     return;
   }
   appPanel = vscode.window.createWebviewPanel(
@@ -214,8 +198,14 @@ function showInTab(frameUrl: string, externalUrl: string, title: string): void {
     { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
     { enableScripts: true, retainContextWhenHidden: true }
   );
+  appPanel.iconPath = {
+    light: vscode.Uri.joinPath(context.extensionUri, "media", "icon-light.svg"),
+    dark: vscode.Uri.joinPath(context.extensionUri, "media", "icon-dark.svg"),
+  };
   appPanel.onDidDispose(() => {
     appPanel = undefined;
+    currentTarget = undefined;
+    updateStatusItem();
   });
   // If the loading app grabs focus shortly after F9, hand it back to the code.
   appPanel.onDidChangeViewState((e) => {
@@ -223,12 +213,10 @@ function showInTab(frameUrl: string, externalUrl: string, title: string): void {
       void restoreSourceFocus();
     }
   });
-  appPanel.webview.onDidReceiveMessage((msg) => {
-    if (msg?.type === "openExternal" && appPanelExternalUrl) {
-      vscode.env.openExternal(vscode.Uri.parse(appPanelExternalUrl));
-    }
-  });
-  appPanel.webview.html = htmlForUrl(frameUrl, externalUrl);
+  appPanel.webview.onDidReceiveMessage((msg) =>
+    handleWebviewMessage(msg, currentTarget)
+  );
+  appPanel.webview.html = previewHtml({ ...target, nonce: createNonce() });
 }
 
 // ---------------------------------------------------------------------------
@@ -246,24 +234,47 @@ function resolveClassName(doc: vscode.TextDocument): string {
   return raw.toUpperCase();
 }
 
-async function ensureTemplate(): Promise<string | undefined> {
+/** Asks for the launch URL and stores it. Returns the stored template. */
+async function askForTemplate(current: string): Promise<string | undefined> {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
-  let tpl = cfg.get<string>(TEMPLATE_KEY, "").trim();
-  if (tpl) {
-    return tpl;
-  }
-  tpl = (
+  const answer = (
     (await vscode.window.showInputBox({
       title: "abap2UI5: Set launch URL",
       prompt: "URL template with {class} as the placeholder",
-      value: "https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100",
+      value:
+        current ||
+        "https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100",
       ignoreFocusOut: true,
+      validateInput: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return "The launch URL must not be empty.";
+        }
+        if (!/\{class\}/i.test(trimmed)) {
+          return "The URL needs the {class} placeholder.";
+        }
+        try {
+          new URL(trimmed);
+        } catch {
+          return "That is not a valid URL.";
+        }
+        return undefined;
+      },
     })) ?? ""
   ).trim();
-  if (tpl) {
-    await cfg.update(TEMPLATE_KEY, tpl, vscode.ConfigurationTarget.Global);
+  if (!answer) {
+    return undefined;
   }
-  return tpl || undefined;
+  await cfg.update(TEMPLATE_KEY, answer, vscode.ConfigurationTarget.Global);
+  return answer;
+}
+
+async function ensureTemplate(): Promise<string | undefined> {
+  const tpl = vscode.workspace
+    .getConfiguration(CONFIG_SECTION)
+    .get<string>(TEMPLATE_KEY, "")
+    .trim();
+  return tpl || (await askForTemplate(""));
 }
 
 async function ensureCredentials(
@@ -350,7 +361,13 @@ async function runApp(
   let frameUrl: string;
   try {
     const origin = new URL(externalUrl).origin;
-    await proxy.start(origin, creds.user, creds.pass);
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Window,
+        title: `abap2UI5: starting ${className}`,
+      },
+      () => proxy.start(origin, creds.user, creds.pass)
+    );
     frameUrl = externalUrl.replace(origin, proxy.origin);
   } catch (err) {
     vscode.window.showErrorMessage(
@@ -365,15 +382,14 @@ async function runApp(
   rememberSource(editor);
   bounceFocusUntil = Date.now() + 2500;
 
-  // Remember for auto-reload on activate/save.
-  currentClassName = className;
-  currentFrameUrl = frameUrl;
-  currentExternalUrl = externalUrl;
+  // Remember for auto-reload on save and for the status bar.
+  currentTarget = { className, frameUrl, externalUrl };
+  updateStatusItem();
 
   if (openMode === "panel") {
-    await provider.show(frameUrl, externalUrl);
+    await provider.show(currentTarget);
   } else {
-    showInTab(frameUrl, externalUrl, `abap2UI5: ${className}`);
+    showInTab(context, currentTarget);
   }
 
   // Focus straight back to the same spot in the source.
@@ -388,7 +404,17 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = new PreviewViewProvider();
   const proxy = new SapProxy();
 
+  statusItem = vscode.window.createStatusBarItem(
+    "abap2ui5.status",
+    vscode.StatusBarAlignment.Left,
+    50
+  );
+  statusItem.name = "abap2UI5";
+  statusItem.command = "abap2ui5.reload";
+  updateStatusItem();
+
   context.subscriptions.push(
+    statusItem,
     { dispose: () => proxy.dispose() },
     vscode.window.registerWebviewViewProvider(
       PreviewViewProvider.viewId,
@@ -397,9 +423,35 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("abap2ui5.run", () =>
       runApp(context, proxy, provider)
     ),
-    // Auto-reload: shown app's class activated/saved -> reload the tab.
+    vscode.commands.registerCommand("abap2ui5.reload", () => {
+      if (!currentTarget) {
+        vscode.window.showInformationMessage(
+          "abap2UI5: no app is running yet - press F9 in an app class."
+        );
+        return;
+      }
+      appPanel?.reveal(vscode.ViewColumn.Beside, true);
+      reloadShownApp(provider);
+    }),
+    vscode.commands.registerCommand("abap2ui5.setLaunchUrl", async () => {
+      const current = vscode.workspace
+        .getConfiguration(CONFIG_SECTION)
+        .get<string>(TEMPLATE_KEY, "");
+      if (await askForTemplate(current)) {
+        vscode.window.showInformationMessage("abap2UI5: launch URL saved.");
+      }
+    }),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration(`${CONFIG_SECTION}.${TEMPLATE_KEY}`)) {
+        provider.refreshWelcome();
+      }
+    }),
+    // Auto-reload: shown app's class saved -> reload the preview.
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!appPanel || doc.languageId !== "abap") {
+      if (doc.languageId !== "abap" || !currentTarget) {
+        return;
+      }
+      if (!appPanel && !provider.isShowing) {
         return;
       }
       const on = vscode.workspace
@@ -411,7 +463,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!APP_INTERFACE_RE.test(doc.getText())) {
         return;
       }
-      if (currentClassName && resolveClassName(doc) !== currentClassName) {
+      if (resolveClassName(doc) !== currentTarget.className) {
         return;
       }
       // Keep focus in the code in case the reloading app tries to grab it.
@@ -420,7 +472,7 @@ export function activate(context: vscode.ExtensionContext): void {
         rememberSource(ed);
         bounceFocusUntil = Date.now() + 2500;
       }
-      reloadShownApp();
+      reloadShownApp(provider, "Reloaded after save");
     }),
     vscode.commands.registerCommand("abap2ui5.resetCredentials", async () => {
       await context.secrets.delete(SECRET_USER);

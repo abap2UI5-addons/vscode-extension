@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.8.0
+
+A visual pass over everything the extension shows.
+
+- **New preview toolbar** with the class name, the system URL, a status dot
+  (loading / ready) and buttons for reload and "open externally". It follows
+  your colour theme instead of bringing its own colours.
+- **Device widths:** switch the preview between desktop, tablet (834px) and
+  phone (414px) to check a responsive app without leaving the editor. The
+  choice is remembered per preview.
+- **Loading state:** a spinner and "Starting ZCL_…" instead of a white area.
+  If the app takes longer than 12 seconds, the preview offers *Reload* and
+  *Open externally* right there.
+- **Welcome screen** in the preview panel: the three steps to a running app,
+  plus buttons for the launch URL, the app template and the project page.
+- **Status bar entry** while an app is running — shows the class, click
+  reloads.
+- **Run button in the editor toolbar** for ABAP files, next to the usual
+  actions.
+- **New commands:** `abap2UI5: Reload Preview` (also in the preview panel's
+  title bar) and `abap2UI5: Set Launch URL`, which validates the URL and the
+  `{class}` placeholder before saving it.
+- **Save toast:** reloading after a save says so in the preview, so a slow
+  round trip is not mistaken for nothing happening.
+- Extension icon, tab icon and panel icon reworked.
+- Internal: the webview HTML moved to `src/webview.ts` and the inline scripts
+  now run under a CSP nonce instead of `unsafe-inline`.
+
 ## 0.7.0
 
 - **The project is now English-only.** README, changelog, code comments and

@@ -28,9 +28,10 @@ find a German string anywhere, it is a leftover — translate it.
 | Path | Purpose |
 | --- | --- |
 | `src/extension.ts` | Activation, the F9 command, webview tab and panel, auto-reload, credential handling |
+| `src/webview.ts` | HTML for the preview and the welcome screen (theme variables, CSP nonce) |
 | `src/proxy.ts` | Local reverse proxy that injects basic auth so the embedded iframe avoids a 401 |
 | `snippets/` | ABAP snippets contributed to the editor |
-| `media/` | Panel icon |
+| `media/` | Icons: `icon.svg` (panel), `icon-light/dark.svg` (preview tab), `icon.png` (gallery) |
 | `esbuild.js` | Bundles `src/extension.ts` into `dist/extension.js` |
 
 `dist/`, `node_modules/` and `*.vsix` are build output and are not committed.
@@ -61,6 +62,10 @@ npm run vsix      # vsce package, catches manifest errors
 - **Bump `version` and add a `CHANGELOG.md` entry** with every user-visible
   change. The changelog is written for users of the extension, not for
   reviewers of the diff.
+- **Webview markup lives in `src/webview.ts`,** styled only with `--vscode-*`
+  theme variables so it works in light, dark and high-contrast themes. Inline
+  `<style>`/`<script>` carry the CSP nonce - no `unsafe-inline`, and therefore
+  no `style="..."` attributes in the markup either.
 - **Never log or persist credentials** anywhere but `context.secrets`. The
   proxy holds them in memory only, as a prepared header.
 
