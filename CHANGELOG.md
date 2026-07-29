@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0
+
+The preview now reloads when you **activate**, not when you save
+([#5](https://github.com/abap2UI5-addons/vscode-extension/issues/5)).
+
+- **No more pointless reload on save.** Saving an ABAP class does not change
+  what the server runs — the activation does. A save of the shown class no
+  longer reloads the preview; it marks it with a small *not activated* badge in
+  the toolbar instead, so it is clear why the app still shows the old version.
+- **New command `abap2UI5: Activate and Reload Preview`** on **Ctrl+F3**
+  (`Cmd+F3` on macOS, the activation key from SAP GUI) and as a ⚡ button in the
+  editor toolbar: it saves the class, hands the activation to the ABAP
+  extension you already use (ABAP remote filesystem) and reloads the preview
+  afterwards. The key is only taken over for objects opened from a system while
+  such an extension is installed — everywhere else Ctrl+F3 keeps its usual
+  VS Code meaning.
+- **New setting `abap2ui5.reloadOn`** with `activation` (default), `save` and
+  `never`. It replaces `abap2ui5.reloadOnSave`, which is deprecated but still
+  honoured while the new setting is unset — `false` behaves like `never`,
+  `true` like `save`.
+
 ## 0.8.0
 
 A visual pass over everything the extension shows.

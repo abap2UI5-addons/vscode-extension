@@ -1,8 +1,8 @@
 # abap2UI5 for VS Code
 
 VS Code extension for developing **abap2UI5** apps: launch an app with **F9**,
-see it right next to the source, and have it reload automatically when you save
-— without the context switch to the browser.
+see it right next to the source, and have it reload automatically when you
+activate the class — without the context switch to the browser.
 
 Works with any system running abap2UI5 (on-premise or cloud). The only thing
 tying the extension to a system is the launch URL you configure once.
@@ -15,9 +15,11 @@ tying the extension to a system is the launch URL you configure once.
   breakpoint), so you don't lose the key.
 - **Focus stays in the code** – After launching, the cursor returns to the same
   spot in the source, even when the loading app tries to grab focus.
-- **Auto-reload on save** – Saving the class of the app currently shown
-  reloads the embedded preview. Can be turned off with
-  `abap2ui5.reloadOnSave`.
+- **Reload on activation, not on save** – **Ctrl+F3** (`Cmd+F3` on macOS)
+  saves the class, activates it through your ABAP tooling and then reloads the
+  preview. A plain save leaves the server on the active version, so it does not
+  reload — the preview shows a *not activated* badge instead. See
+  [Reloading](#reloading-abap2ui5reloadon).
 - **Preview toolbar** – Class name, system URL, status dot and buttons for
   reload and "open externally". Themed with your VS Code colour theme.
 - **Device widths** – Switch the preview between desktop, tablet (834px) and
@@ -76,19 +78,51 @@ certificates are accepted.
 > **Change or delete credentials:** run the command *"abap2UI5: Clear Stored
 > SAP Credentials"*. The next F9 asks again.
 
+## Reloading (`abap2ui5.reloadOn`)
+
+Saving an ABAP class does not change what the server runs — only **activation**
+does. That is why the preview reloads on activation and not on every save:
+
+| Value | Behaviour |
+| --- | --- |
+| `activation` (default) | **Ctrl+F3** saves the class, activates it and reloads the preview. A plain save only marks the preview *not activated* |
+| `save` | Reload on every save of the shown class — for setups in which saving already publishes the change |
+| `never` | Only F9, the reload button in the preview or the status bar reload |
+
+**Ctrl+F3** (`Cmd+F3` on macOS, the activation key from SAP GUI) runs
+*abap2UI5: Activate and Reload Preview*: it saves the class, hands the
+activation to the ABAP extension you already use — the
+[ABAP remote filesystem](https://marketplace.visualstudio.com/items?itemName=murbani.vscode-abap-remote-fs)
+extension and its `abapfs.activate` — and reloads the preview afterwards. The
+same command sits behind the ⚡ button in the editor toolbar.
+
+The key is only taken over for ABAP objects opened from a system (scheme
+`adt`) while such an extension is installed. Everywhere else Ctrl+F3 keeps its
+usual VS Code meaning.
+
+> Activating with the ABAP remote filesystem's own shortcut
+> (**Alt+Shift+F3**) does not reach this extension — VS Code gives no
+> notification when another extension activates an object. The preview then
+> keeps its *not activated* badge until you reload it (toolbar button, status
+> bar or F9). Use Ctrl+F3 to get both in one keystroke.
+
+> The predecessor `abap2ui5.reloadOnSave` still works while `abap2ui5.reloadOn`
+> is unset: `false` behaves like `never`, `true` like `save`.
+
 ## Settings
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `abap2ui5.launchUrlTemplate` | – | URL template used to launch an app, `{class}` as the placeholder |
 | `abap2ui5.openMode` | `tab` | `tab`, `panel` or `external` |
-| `abap2ui5.reloadOnSave` | `true` | Reload the preview when the shown class is saved |
+| `abap2ui5.reloadOn` | `activation` | When the preview reloads on its own: `activation`, `save` or `never` |
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
 | `abap2UI5: Run App (F9)` | Launches the app of the current class |
+| `abap2UI5: Activate and Reload Preview (Ctrl+F3)` | Activates the class through your ABAP tooling, then reloads the preview |
 | `abap2UI5: Reload Preview` | Reloads the app currently shown |
 | `abap2UI5: Set Launch URL` | Sets (or changes) the launch URL template |
 | `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
@@ -108,7 +142,7 @@ Download the file from the
 **Through the terminal:**
 
 ```bash
-code --install-extension abap2ui5-0.8.0.vsix
+code --install-extension abap2ui5-0.9.0.vsix
 ```
 
 **Updating** means building a new `.vsix` with a higher version number and
@@ -140,7 +174,7 @@ npm install
 npm run vsix
 ```
 
-The result is a file such as `abap2ui5-0.8.0.vsix`.
+The result is a file such as `abap2ui5-0.9.0.vsix`.
 
 > `vsce` is included as a devDependency, so `npm run vsix` uses the local
 > version. Alternatively install it globally: `npm install -g @vscode/vsce`.
@@ -159,8 +193,8 @@ either
 - tag the commit yourself:
 
   ```bash
-  git tag v0.8.0
-  git push origin v0.8.0
+  git tag v0.9.0
+  git push origin v0.9.0
   ```
 
 Either way the workflow builds the `.vsix`, creates the GitHub release and
