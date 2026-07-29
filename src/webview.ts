@@ -160,6 +160,20 @@ ${BASE_CSS}
     letter-spacing: 0.02em;
     white-space: nowrap;
   }
+  /* Shown between class name and URL once the source was saved but not activated. */
+  .badge {
+    display: none;
+    flex: none;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.82em;
+    white-space: nowrap;
+    color: var(--vscode-editorWarning-foreground, #d29922);
+    border: 1px solid currentColor;
+    opacity: 0.85;
+  }
+  body[data-stale="true"] .badge { display: inline-flex; }
   .url {
     min-width: 0;
     flex: 1;
@@ -272,10 +286,11 @@ ${BASE_CSS}
   .toast.show { opacity: 1; transform: translateY(0); }
 </style>
 </head>
-<body data-state="loading">
+<body data-state="loading" data-stale="false">
   <div class="bar">
     <span class="dot" id="dot"></span>
     <span class="name" id="name">${className}</span>
+    <span class="badge" id="stale" title="The source was saved but not activated - the preview still shows the active version.">not activated</span>
     <span class="url" id="url" title="${externalUrl}">${urlLabel}</span>
     <div class="seg" role="group" aria-label="Preview size">
       <button id="d-desktop" data-device="desktop" aria-pressed="true" title="Desktop width">${icon("desktop")}</button>
@@ -353,6 +368,7 @@ ${BASE_CSS}
 
   function load(url, message) {
     beginLoad(message);
+    body.dataset.stale = 'false'; // whatever is loading now is the current active version
     frame.src = url; // reassigning src is what forces the reload
   }
 
@@ -382,9 +398,16 @@ ${BASE_CSS}
   // Start the app only now: the load listener above is already attached.
   load(frameUrl, 'Starting ' + nameEl.textContent + '\\u2026');
 
-  // The host sends 'load' on F9, on the reload command and on save.
+  // The host sends 'load' on F9, on activation and on the reload command, and
+  // 'stale' when the shown class was saved without being activated.
   window.addEventListener('message', (event) => {
     const msg = event.data || {};
+    if (msg.type === 'stale') {
+      // Only the first save after a load says it out loud; the badge stays.
+      if (msg.reason && body.dataset.stale !== 'true') { showToast(msg.reason); }
+      body.dataset.stale = 'true';
+      return;
+    }
     if (msg.type !== 'load') { return; }
     const switched = msg.className && msg.className !== nameEl.textContent;
     frameUrl = msg.frameUrl;
@@ -493,7 +516,7 @@ ${BASE_CSS}
           ? "Press <kbd>F9</kbd> &mdash; the app opens here, the cursor stays in the code."
           : "Open an app class and press <kbd>F9</kbd>."
       }</span></li>
-      <li><span class="num">3</span><span>Save the class &mdash; the preview reloads on its own.</span></li>
+      <li><span class="num">3</span><span>Activate the class with <kbd>Ctrl+F3</kbd> &mdash; the preview reloads on its own. A save alone leaves the server on the active version, so it does not reload.</span></li>
     </ol>
     <div class="actions">
       <button data-command="abap2ui5.setLaunchUrl">${icon("link")}Set launch URL</button>

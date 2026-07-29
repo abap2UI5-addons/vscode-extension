@@ -7,6 +7,9 @@ import { createNonce, previewHtml, shortUrl, welcomeHtml } from "./webview";
 const CONFIG_SECTION = "abap2ui5";
 const TEMPLATE_KEY = "launchUrlTemplate";
 const OPEN_MODE_KEY = "openMode";
+const RELOAD_KEY = "reloadOn";
+/** Replaced by `reloadOn` in 0.9.0, still honoured while it is set. */
+const LEGACY_RELOAD_KEY = "reloadOnSave";
 
 const SECRET_USER = "abap2ui5.user";
 const SECRET_PASS = "abap2ui5.pass";
@@ -36,6 +39,38 @@ function loadMessage(target: AppTarget, reason?: string) {
     shortUrl: shortUrl(target.externalUrl),
     reason,
   };
+}
+
+/**
+ * Message posted when the shown class was saved but not activated: the preview
+ * still shows the active version, so it says so instead of reloading.
+ */
+function staleMessage(reason: string) {
+  return { type: "stale" as const, reason };
+}
+
+/** When the preview reloads by itself. */
+type ReloadTrigger = "activation" | "save" | "never";
+
+function reloadTrigger(): ReloadTrigger {
+  const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
+  const chosen = cfg.inspect<string>(RELOAD_KEY);
+  const explicit =
+    chosen?.workspaceFolderValue ?? chosen?.workspaceValue ?? chosen?.globalValue;
+  if (explicit === "activation" || explicit === "save" || explicit === "never") {
+    return explicit;
+  }
+  // Nothing set: keep honouring an explicit `reloadOnSave` from an older version.
+  const legacy = cfg.inspect<boolean>(LEGACY_RELOAD_KEY);
+  const legacyValue =
+    legacy?.workspaceFolderValue ?? legacy?.workspaceValue ?? legacy?.globalValue;
+  if (legacyValue === false) {
+    return "never";
+  }
+  if (legacyValue === true) {
+    return "save";
+  }
+  return "activation";
 }
 
 function hasLaunchUrl(): boolean {
@@ -72,8 +107,15 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
 
   /** Reloads the app already shown, without stealing the focus. */
   reload(reason?: string): void {
-    if (this.view && this.previewRendered && this.target) {
-      void this.view.webview.postMessage(loadMessage(this.target, reason));
+    if (this.target) {
+      this.post(loadMessage(this.target, reason));
+    }
+  }
+
+  /** Posts to the rendered preview; ignored while the welcome screen is up. */
+  post(message: unknown): void {
+    if (this.view && this.previewRendered) {
+      void this.view.webview.postMessage(message);
     }
   }
 
@@ -136,15 +178,20 @@ function updateStatusItem(): void {
   statusItem.show();
 }
 
+/** Sends a message to whichever preview is showing (tab and/or panel). */
+function postToShownApp(provider: PreviewViewProvider, message: unknown): void {
+  if (appPanel) {
+    void appPanel.webview.postMessage(message);
+  }
+  provider.post(message);
+}
+
 /** Reloads the app shown in tab or panel without moving the focus. */
 function reloadShownApp(provider: PreviewViewProvider, reason?: string): void {
   if (!currentTarget) {
     return;
   }
-  if (appPanel) {
-    void appPanel.webview.postMessage(loadMessage(currentTarget, reason));
-  }
-  provider.reload(reason);
+  postToShownApp(provider, loadMessage(currentTarget, reason));
 }
 
 function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void {
@@ -397,6 +444,75 @@ async function runApp(
 }
 
 // ---------------------------------------------------------------------------
+// Activate the ABAP object, then reload
+// ---------------------------------------------------------------------------
+
+/**
+ * Activation commands of the ABAP extensions we know about, in the order they
+ * are tried. Ctrl+F3 delegates to the first one that is actually installed.
+ */
+const ABAP_ACTIVATE_COMMANDS = ["abapfs.activate"];
+
+/** What Ctrl+F3 does in VS Code when no ABAP tooling is installed. */
+const CTRL_F3_FALLBACK = "editor.action.nextSelectionMatchFindAction";
+
+async function findAbapActivateCommand(): Promise<string | undefined> {
+  const available = new Set(await vscode.commands.getCommands(true));
+  return ABAP_ACTIVATE_COMMANDS.find((command) => available.has(command));
+}
+
+/**
+ * Saves, activates through the installed ABAP tooling and reloads the preview.
+ * Only the activation puts the new source on the server, which is why this -
+ * and not a plain save - is what the preview reloads on.
+ */
+async function activateAndReload(provider: PreviewViewProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  const isAbap = editor?.document.languageId === "abap";
+  const activateCommand = await findAbapActivateCommand();
+
+  if (!activateCommand) {
+    // No ABAP tooling: keep the normal Ctrl+F3 behaviour in the editor and
+    // just refresh what is shown.
+    if (isAbap) {
+      await vscode.commands.executeCommand(CTRL_F3_FALLBACK);
+    }
+    if (currentTarget) {
+      reloadShownApp(provider, "Reloaded");
+    }
+    return;
+  }
+
+  if (editor && isAbap && editor.document.isDirty) {
+    await editor.document.save();
+  }
+
+  if (editor && isAbap) {
+    rememberSource(editor);
+  }
+
+  try {
+    await vscode.commands.executeCommand(activateCommand);
+  } catch (err) {
+    vscode.window.showErrorMessage(
+      "abap2UI5: activation failed - " +
+        (err instanceof Error ? err.message : String(err))
+    );
+    return;
+  }
+
+  if (!currentTarget) {
+    return;
+  }
+  // Keep focus in the code in case the reloading app tries to grab it. The
+  // window starts here: activating can take a moment.
+  if (editor && isAbap) {
+    bounceFocusUntil = Date.now() + 2500;
+  }
+  reloadShownApp(provider, "Reloaded after activation");
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
@@ -433,6 +549,9 @@ export function activate(context: vscode.ExtensionContext): void {
       appPanel?.reveal(vscode.ViewColumn.Beside, true);
       reloadShownApp(provider);
     }),
+    vscode.commands.registerCommand("abap2ui5.activate", () =>
+      activateAndReload(provider)
+    ),
     vscode.commands.registerCommand("abap2ui5.setLaunchUrl", async () => {
       const current = vscode.workspace
         .getConfiguration(CONFIG_SECTION)
@@ -446,7 +565,9 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.refreshWelcome();
       }
     }),
-    // Auto-reload: shown app's class saved -> reload the preview.
+    // Shown app's class saved. A save alone does not change anything on the
+    // server - the object has to be activated - so by default the preview only
+    // says so instead of reloading.
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.languageId !== "abap" || !currentTarget) {
         return;
@@ -454,16 +575,18 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!appPanel && !provider.isShowing) {
         return;
       }
-      const on = vscode.workspace
-        .getConfiguration(CONFIG_SECTION)
-        .get<boolean>("reloadOnSave", true);
-      if (!on) {
+      const trigger = reloadTrigger();
+      if (trigger === "never") {
         return;
       }
       if (!APP_INTERFACE_RE.test(doc.getText())) {
         return;
       }
       if (resolveClassName(doc) !== currentTarget.className) {
+        return;
+      }
+      if (trigger === "activation") {
+        postToShownApp(provider, staleMessage("Saved - activate to update"));
         return;
       }
       // Keep focus in the code in case the reloading app tries to grab it.

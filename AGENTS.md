@@ -27,7 +27,7 @@ find a German string anywhere, it is a leftover — translate it.
 
 | Path | Purpose |
 | --- | --- |
-| `src/extension.ts` | Activation, the F9 command, webview tab and panel, auto-reload, credential handling |
+| `src/extension.ts` | Activation, the F9 command, the Ctrl+F3 activate-and-reload command, webview tab and panel, reload handling, credentials |
 | `src/webview.ts` | HTML for the preview and the welcome screen (theme variables, CSP nonce) |
 | `src/proxy.ts` | Local reverse proxy that injects basic auth so the embedded iframe avoids a 401 |
 | `snippets/` | ABAP snippets contributed to the editor |
@@ -76,6 +76,10 @@ empty release body (the workflow falls back to a placeholder).
   versa — a mismatch only shows up at runtime, not in `tsc`.
 - **Settings live under the `abap2ui5.` prefix** and are read through
   `CONFIG_SECTION`. Command IDs use the same prefix.
+- **The preview reloads on activation, not on save.** A saved ABAP class is
+  still inactive on the server, so reloading would show the old version. Keys
+  that other ABAP extensions own (F9, Ctrl+F3) are taken over only with a
+  fallback: the command delegates to what the key would otherwise do.
 - **Do not rename `name` or `publisher` casually.** Together they form the
   extension ID; changing it makes VS Code treat the result as a different
   extension, orphaning the old install and the SecretStorage entries (which are
