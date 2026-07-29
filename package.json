@@ -2,7 +2,7 @@
   "name": "abap2ui5",
   "displayName": "abap2UI5",
   "description": "Develop abap2UI5 apps in VS Code: F9 launches a z2ui5_if_app class in an embedded preview, reload on activation, snippets.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "publisher": "abap2ui5-local",
   "license": "MIT",
   "private": true,
@@ -75,7 +75,7 @@
         },
         {
           "command": "abap2ui5.activate",
-          "when": "resourceLangId == abap && abap2ui5.hasAbapTooling && resourceScheme == adt",
+          "when": "resourceLangId == abap && resourceScheme == adt",
           "group": "navigation@2"
         }
       ],
@@ -97,7 +97,7 @@
         "command": "abap2ui5.activate",
         "key": "ctrl+f3",
         "mac": "cmd+f3",
-        "when": "editorTextFocus && editorLangId == abap && abap2ui5.hasAbapTooling && resourceScheme == adt"
+        "when": "editorTextFocus && editorLangId == abap && resourceScheme == adt"
       }
     ],
     "viewsContainers": {
@@ -141,12 +141,12 @@
           "type": "string",
           "enum": ["activation", "save", "never"],
           "enumDescriptions": [
-            "Reload when the shown class is activated with Ctrl+F3 (a save only marks the preview as \"not activated\").",
+            "Reload when the shown class is activated - with Ctrl+F3, or detected on the server when activated any other way (a save only marks the preview as \"not activated\").",
             "Reload every time the shown class is saved - for setups in which saving already publishes the change.",
             "Never reload on its own - use the reload button, the status bar or F9."
           ],
           "default": "activation",
-          "markdownDescription": "When the preview of the shown app class reloads by itself.\n\n- `activation`: on **Ctrl+F3** (*abap2UI5: Activate and Reload Preview*), which activates the class through your ABAP tooling and then reloads. Saving alone leaves the server on the active version, so it only marks the preview as *not activated*.\n- `save`: on every save of the shown class.\n- `never`: only on F9, the reload button or the status bar."
+          "markdownDescription": "When the preview of the shown app class reloads by itself.\n\n- `activation`: on **Ctrl+F3** (*abap2UI5: Activate and Reload Preview*), which activates the class through your ABAP tooling and then reloads. For sources opened from a system (scheme `adt`), an activation done any other way - the ABAP extension's own button, or Eclipse - is picked up too: while the preview is marked *not activated*, the class is watched on the server and the preview reloads as soon as it is active again. Saving alone leaves the server on the active version, so it only marks the preview as *not activated*.\n- `save`: on every save of the shown class.\n- `never`: only on F9, the reload button or the status bar."
         },
         "abap2ui5.reloadOnSave": {
           "type": "boolean",

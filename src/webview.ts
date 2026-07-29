@@ -172,7 +172,9 @@ ${BASE_CSS}
     color: var(--vscode-editorWarning-foreground, #d29922);
     border: 1px solid currentColor;
     opacity: 0.85;
+    cursor: pointer;
   }
+  .badge:hover { opacity: 1; }
   body[data-stale="true"] .badge { display: inline-flex; }
   .url {
     min-width: 0;
@@ -290,7 +292,7 @@ ${BASE_CSS}
   <div class="bar">
     <span class="dot" id="dot"></span>
     <span class="name" id="name">${className}</span>
-    <span class="badge" id="stale" title="The source was saved but not activated - the preview still shows the active version.">not activated</span>
+    <button class="badge" id="stale" title="The source was saved but not activated - the preview still shows the active version. Click to reload it anyway.">not activated</button>
     <span class="url" id="url" title="${externalUrl}">${urlLabel}</span>
     <div class="seg" role="group" aria-label="Preview size">
       <button id="d-desktop" data-device="desktop" aria-pressed="true" title="Desktop width">${icon("desktop")}</button>
@@ -381,6 +383,10 @@ ${BASE_CSS}
     reloadBtn.classList.remove('spin');
     void reloadBtn.offsetWidth; // restart the animation
     reloadBtn.classList.add('spin');
+    load(frameUrl, 'Reloading ' + nameEl.textContent + '\\u2026');
+  });
+
+  document.getElementById('stale').addEventListener('click', () => {
     load(frameUrl, 'Reloading ' + nameEl.textContent + '\\u2026');
   });
 

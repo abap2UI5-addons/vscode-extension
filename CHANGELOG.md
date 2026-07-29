@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.9.1
+
+Reloading after activation now actually happens — however you activate
+([#5](https://github.com/abap2UI5-addons/vscode-extension/issues/5)).
+
+- **Activations are detected on the server.** 0.9.0 only reloaded on its own
+  Ctrl+F3; activating with the ABAP remote filesystem's own button or shortcut
+  went unnoticed, because VS Code has no event for it. Now, while the preview
+  shows the *not activated* badge, the extension watches the class on the
+  server (its ADT metadata, fetched with the credentials it already holds for
+  the preview) and reloads as soon as the inactive version is gone — no matter
+  whether the activation came from Ctrl+F3, the ABAP extension's own UI or
+  even Eclipse. Needs the source to be opened from a system (scheme `adt`) and
+  the ADT services answering on the launch-URL host; where they do not, the
+  watch stops silently and the badge stays until you reload.
+- **Fix: Ctrl+F3 (and the ⚡ button) could stay dead for a whole session.**
+  They were gated on a "an ABAP extension with an activate command is
+  installed" flag computed once at startup — when this extension happened to
+  activate before the ABAP extension had registered its commands, the flag
+  stayed false and the key silently did nothing. The gate is now simply "the
+  file was opened from an ABAP system" (scheme `adt`), which implies working
+  ABAP tooling and cannot go stale.
+- **The *not activated* badge is now clickable** — it reloads the preview
+  right there (showing the still-active version, as the tooltip says).
+- Ctrl+F3 now hands the exact document to `abapfs.activate` instead of relying
+  on its active-editor fallback.
+
 ## 0.9.0
 
 The preview now reloads when you **activate**, not when you save

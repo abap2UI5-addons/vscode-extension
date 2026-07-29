@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { URL } from "url";
-import { SapProxy } from "./proxy";
+import { AdtStatusError, SapProxy } from "./proxy";
 import { createNonce, previewHtml, shortUrl, welcomeHtml } from "./webview";
 
 const CONFIG_SECTION = "abap2ui5";
@@ -191,6 +191,7 @@ function reloadShownApp(provider: PreviewViewProvider, reason?: string): void {
   if (!currentTarget) {
     return;
   }
+  stopActivationWatch(); // whatever loads now is current, the badge clears
   postToShownApp(provider, loadMessage(currentTarget, reason));
 }
 
@@ -430,6 +431,7 @@ async function runApp(
   bounceFocusUntil = Date.now() + 2500;
 
   // Remember for auto-reload on save and for the status bar.
+  stopActivationWatch();
   currentTarget = { className, frameUrl, externalUrl };
   updateStatusItem();
 
@@ -459,20 +461,6 @@ const ABAP_ACTIVATE_COMMANDS = ["abapfs.activate"];
 async function findAbapActivateCommand(): Promise<string | undefined> {
   const available = new Set(await vscode.commands.getCommands(true));
   return ABAP_ACTIVATE_COMMANDS.find((command) => available.has(command));
-}
-
-/**
- * Gates the Ctrl+F3 binding and the editor toolbar button: without ABAP
- * tooling there is nothing to activate, and Ctrl+F3 keeps the meaning VS Code
- * gives it.
- */
-async function updateAbapToolingContext(): Promise<void> {
-  const found = !!(await findAbapActivateCommand());
-  await vscode.commands.executeCommand(
-    "setContext",
-    `${CONFIG_SECTION}.hasAbapTooling`,
-    found
-  );
 }
 
 /**
@@ -507,7 +495,17 @@ async function activateAndReload(provider: PreviewViewProvider): Promise<void> {
   }
 
   try {
-    await vscode.commands.executeCommand(activateCommand);
+    // Hand over the exact document instead of relying on the tooling's
+    // active-editor fallback. Note that at least abapfs.activate reports its
+    // own failures and resolves anyway, so reaching the reload below does not
+    // guarantee the activation worked — the server watch (see below) covers a
+    // late activation after a failed first try.
+    await vscode.commands.executeCommand(
+      activateCommand,
+      editor && isAbap && editor.document.uri.scheme === "adt"
+        ? editor.document.uri
+        : undefined
+    );
   } catch (err) {
     vscode.window.showErrorMessage(
       "abap2UI5: activation failed - " +
@@ -528,6 +526,97 @@ async function activateAndReload(provider: PreviewViewProvider): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Watch the server for the activation
+// ---------------------------------------------------------------------------
+
+// Ctrl+F3 reloads by itself, but an activation done any other way — the ABAP
+// extension's own button or shortcut, even Eclipse — is invisible here:
+// VS Code has no event for it and the ABAP extensions expose none. So while
+// the preview is stale, the class is watched on the server instead: its ADT
+// metadata says "inactive" as long as a saved-but-not-activated version
+// exists, and the flip back to "active" IS the activation.
+
+const ACTIVATION_POLL_MS = 2500;
+const ACTIVATION_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
+let activationWatchTimer: NodeJS.Timeout | undefined;
+/** Bumped on every stop, so an in-flight poll of an old watch goes stale. */
+let activationWatchGen = 0;
+/** ADT answered 4xx: this system will not tell us, stop asking for good. */
+let adtWatchUnavailable = false;
+
+function stopActivationWatch(): void {
+  activationWatchGen++;
+  if (activationWatchTimer) {
+    clearTimeout(activationWatchTimer);
+    activationWatchTimer = undefined;
+  }
+}
+
+function startActivationWatch(
+  proxy: SapProxy,
+  provider: PreviewViewProvider
+): void {
+  stopActivationWatch();
+  if (adtWatchUnavailable || !currentTarget || !proxy.isRunning) {
+    return;
+  }
+  const gen = activationWatchGen;
+  const className = currentTarget.className;
+  const deadline = Date.now() + ACTIVATION_POLL_TIMEOUT_MS;
+  let sapClient: string | undefined;
+  try {
+    sapClient =
+      new URL(currentTarget.externalUrl).searchParams.get("sap-client") ??
+      undefined;
+  } catch {
+    // no client parameter, the system's default client answers
+  }
+  // Saving through the ABAP filesystem uploads the source as an inactive
+  // version; insist on seeing that before "active" counts as the activation,
+  // so an upload still in flight is not mistaken for one.
+  let sawInactive = false;
+
+  const tick = async (): Promise<void> => {
+    activationWatchTimer = undefined;
+    if (gen !== activationWatchGen) {
+      return;
+    }
+    if (!currentTarget || currentTarget.className !== className) {
+      return; // preview gone or showing another app
+    }
+    let version: "active" | "inactive" | undefined | null;
+    try {
+      version = await proxy.fetchClassVersion(className, sapClient);
+    } catch (err) {
+      if (err instanceof AdtStatusError && err.status >= 400 && err.status < 500) {
+        // Not authorized / not exposed: it will not start answering later.
+        adtWatchUnavailable = true;
+        return;
+      }
+      version = null; // network hiccup or 5xx: try again
+    }
+    if (gen !== activationWatchGen) {
+      return;
+    }
+    if (version === "inactive") {
+      sawInactive = true;
+    }
+    if (version === "active" && sawInactive) {
+      reloadShownApp(provider, "Reloaded after activation");
+      return;
+    }
+    if (version === undefined) {
+      return; // answered, but without a version: nothing to watch
+    }
+    if (Date.now() < deadline) {
+      activationWatchTimer = setTimeout(() => void tick(), ACTIVATION_POLL_MS);
+    }
+  };
+  activationWatchTimer = setTimeout(() => void tick(), ACTIVATION_POLL_MS);
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
@@ -544,14 +633,10 @@ export function activate(context: vscode.ExtensionContext): void {
   statusItem.command = "abap2ui5.reload";
   updateStatusItem();
 
-  void updateAbapToolingContext();
-  context.subscriptions.push(
-    vscode.extensions.onDidChange(() => void updateAbapToolingContext())
-  );
-
   context.subscriptions.push(
     statusItem,
     { dispose: () => proxy.dispose() },
+    { dispose: () => stopActivationWatch() },
     vscode.window.registerWebviewViewProvider(
       PreviewViewProvider.viewId,
       provider
@@ -607,6 +692,11 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       if (trigger === "activation") {
         postToShownApp(provider, staleMessage("Saved - activate to update"));
+        // For sources living on a system, notice the activation itself —
+        // however it is done — and reload then.
+        if (doc.uri.scheme === "adt") {
+          startActivationWatch(proxy, provider);
+        }
         return;
       }
       // Keep focus in the code in case the reloading app tries to grab it.

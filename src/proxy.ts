@@ -2,6 +2,13 @@ import * as http from "http";
 import * as https from "https";
 import { URL } from "url";
 
+/** Non-2xx answer from the ADT class lookup, with the status to decide on. */
+export class AdtStatusError extends Error {
+  constructor(public readonly status: number) {
+    super(`ADT answered ${status}`);
+  }
+}
+
 /**
  * Small local reverse proxy: accepts requests on 127.0.0.1 and forwards them
  * to the SAP system, injecting the basic-auth header into EVERY request. That
@@ -43,6 +50,78 @@ export class SapProxy {
 
   get origin(): string {
     return `http://127.0.0.1:${this.port}`;
+  }
+
+  /** True once start() succeeded, i.e. target and credentials are known. */
+  get isRunning(): boolean {
+    return !!this.server && !!this.target && !!this.authHeader;
+  }
+
+  /**
+   * Reads the activation state of a class from the system's ADT service
+   * (`/sap/bc/adt/oo/classes/<name>`), using the credentials the proxy already
+   * injects. The root element's `adtcore:version` attribute is `inactive`
+   * while a saved-but-not-activated version exists and flips back to `active`
+   * on activation — the only way to notice an activation done outside this
+   * extension, since VS Code has no event for it.
+   *
+   * Resolves to the version, or undefined when the answer has none. Rejects
+   * with an {@link AdtStatusError} on a non-2xx status.
+   */
+  fetchClassVersion(
+    className: string,
+    sapClient?: string
+  ): Promise<"active" | "inactive" | undefined> {
+    const target = this.target;
+    const auth = this.authHeader;
+    if (!target || !auth) {
+      return Promise.reject(new Error("proxy not started"));
+    }
+    const isHttps = target.protocol === "https:";
+    const mod = isHttps ? https : http;
+    const path =
+      "/sap/bc/adt/oo/classes/" +
+      encodeURIComponent(className.toLowerCase()) +
+      (sapClient ? `?sap-client=${encodeURIComponent(sapClient)}` : "");
+
+    return new Promise((resolve, reject) => {
+      const req = mod.request(
+        {
+          protocol: target.protocol,
+          hostname: target.hostname,
+          port: target.port || (isHttps ? 443 : 80),
+          method: "GET",
+          path,
+          headers: {
+            authorization: auth,
+            accept: "application/xml, */*",
+          },
+          rejectUnauthorized: false,
+        },
+        (res) => {
+          const status = res.statusCode ?? 0;
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => {
+            // The attribute sits on the root element; cap just in case.
+            if (body.length < 64 * 1024) {
+              body += chunk;
+            }
+          });
+          res.on("end", () => {
+            if (status < 200 || status >= 300) {
+              reject(new AdtStatusError(status));
+              return;
+            }
+            const match = body.match(/adtcore:version="(active|inactive)"/);
+            resolve(match ? (match[1] as "active" | "inactive") : undefined);
+          });
+        }
+      );
+      req.setTimeout(8000, () => req.destroy(new Error("ADT request timed out")));
+      req.on("error", reject);
+      req.end();
+    });
   }
 
   private handle(req: http.IncomingMessage, res: http.ServerResponse): void {
