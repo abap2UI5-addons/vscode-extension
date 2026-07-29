@@ -15,6 +15,14 @@
   the server knows whether an inactive version exists, whatever the file's
   URI scheme is. (Sources that never reach a server simply never show up as
   inactive, so nothing reloads there either.)
+- **Fix: an activation right after the save was missed.** The watch first
+  looked at the server 2.5 seconds after the save. An activation that was done
+  by then — activating immediately, or activating with a tool that saves as
+  part of it — left nothing inactive to see, and the watch kept waiting for a
+  version it had already missed, so only the first (slow) cycle ever reloaded.
+  The first look now happens a quarter of a second after the save, when the
+  freshly uploaded inactive version is guaranteed to still be there, and the
+  watch then checks every 1.5 seconds.
 - **New output channel `abap2UI5`** (View → Output): the activation watch says
   what it is doing there — started, class inactive, active again → reload, or
   the reason it stops (ADT unreachable, timeout). When an automatic reload

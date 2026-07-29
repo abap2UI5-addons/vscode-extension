@@ -544,7 +544,15 @@ async function activateAndReload(provider: PreviewViewProvider): Promise<void> {
 // metadata says "inactive" as long as a saved-but-not-activated version
 // exists, and the flip back to "active" IS the activation.
 
-const ACTIVATION_POLL_MS = 2500;
+// The first look happens right after the save: the saved source is already
+// on the server as an inactive version at that point (the save event fires
+// once the filesystem write went through), while the activation - even one
+// kicked off together with the save - still takes its server roundtrips.
+// Looking early is what guarantees the inactive state is seen at all; an
+// activation that finishes before the first look would otherwise be waited
+// for forever.
+const ACTIVATION_POLL_FIRST_MS = 250;
+const ACTIVATION_POLL_MS = 1500;
 const ACTIVATION_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 
 let activationWatchTimer: NodeJS.Timeout | undefined;
@@ -662,7 +670,7 @@ function startActivationWatch(
       log("activation watch: no activation within 10 minutes - giving up, reload manually");
     }
   };
-  activationWatchTimer = setTimeout(() => void tick(), ACTIVATION_POLL_MS);
+  activationWatchTimer = setTimeout(() => void tick(), ACTIVATION_POLL_FIRST_MS);
 }
 
 // ---------------------------------------------------------------------------
