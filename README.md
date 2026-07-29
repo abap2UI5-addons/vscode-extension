@@ -17,8 +17,9 @@ tying the extension to a system is the launch URL you configure once.
   spot in the source, even when the loading app tries to grab focus.
 - **Reload on activation, not on save** – **Ctrl+F3** (`Cmd+F3` on macOS)
   saves the class, activates it through your ABAP tooling and then reloads the
-  preview. A plain save leaves the server on the active version, so it does not
-  reload — the preview shows a *not activated* badge instead. See
+  preview. Activations done any other way are noticed on the server and reload
+  the preview too. A plain save leaves the server on the active version, so it
+  does not reload — the preview shows a *not activated* badge instead. See
   [Reloading](#reloading-abap2ui5reloadon).
 - **Preview toolbar** – Class name, system URL, status dot and buttons for
   reload and "open externally". Themed with your VS Code colour theme.
@@ -85,7 +86,7 @@ does. That is why the preview reloads on activation and not on every save:
 
 | Value | Behaviour |
 | --- | --- |
-| `activation` (default) | **Ctrl+F3** saves the class, activates it and reloads the preview. A plain save only marks the preview *not activated* |
+| `activation` (default) | **Ctrl+F3** saves the class, activates it and reloads the preview; activations done any other way are detected on the server. A plain save only marks the preview *not activated* |
 | `save` | Reload on every save of the shown class — for setups in which saving already publishes the change |
 | `never` | Only F9, the reload button in the preview or the status bar reload |
 
@@ -97,14 +98,17 @@ extension and its `abapfs.activate` — and reloads the preview afterwards. The
 same command sits behind the ⚡ button in the editor toolbar.
 
 The key is only taken over for ABAP objects opened from a system (scheme
-`adt`) while such an extension is installed. Everywhere else Ctrl+F3 keeps its
-usual VS Code meaning.
+`adt`). Everywhere else Ctrl+F3 keeps its usual VS Code meaning.
 
-> Activating with the ABAP remote filesystem's own shortcut
-> (**Alt+Shift+F3**) does not reach this extension — VS Code gives no
-> notification when another extension activates an object. The preview then
-> keeps its *not activated* badge until you reload it (toolbar button, status
-> bar or F9). Use Ctrl+F3 to get both in one keystroke.
+> **Activating any other way works too.** VS Code gives no notification when
+> another extension activates an object, so while the preview shows the *not
+> activated* badge, the extension watches the class on the server instead (its
+> ADT metadata, fetched with the same credentials the preview already uses)
+> and reloads as soon as the class is active again — whether you activated
+> with Ctrl+F3, the ABAP remote filesystem's own button, or even from Eclipse.
+> The watch requires the ADT services (`/sap/bc/adt`) to answer on the
+> launch-URL host; where they don't, the badge simply stays until you reload
+> (click the badge, the toolbar button, the status bar or F9).
 
 > The predecessor `abap2ui5.reloadOnSave` still works while `abap2ui5.reloadOn`
 > is unset: `false` behaves like `never`, `true` like `save`.
@@ -142,7 +146,7 @@ Download the file from the
 **Through the terminal:**
 
 ```bash
-code --install-extension abap2ui5-0.9.0.vsix
+code --install-extension abap2ui5-0.9.1.vsix
 ```
 
 **Updating** means building a new `.vsix` with a higher version number and
@@ -174,7 +178,7 @@ npm install
 npm run vsix
 ```
 
-The result is a file such as `abap2ui5-0.9.0.vsix`.
+The result is a file such as `abap2ui5-0.9.1.vsix`.
 
 > `vsce` is included as a devDependency, so `npm run vsix` uses the local
 > version. Alternatively install it globally: `npm install -g @vscode/vsce`.
@@ -193,8 +197,8 @@ either
 - tag the commit yourself:
 
   ```bash
-  git tag v0.9.0
-  git push origin v0.9.0
+  git tag v0.9.1
+  git push origin v0.9.1
   ```
 
 Either way the workflow builds the `.vsix`, creates the GitHub release and
