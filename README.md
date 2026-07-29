@@ -65,7 +65,8 @@ starts a local auth proxy on `127.0.0.1`:
    same ones you use in ADT). They are kept in the VS Code **SecretStorage**.
 2. The proxy attaches `Authorization: Basic …` to **every** request and
    forwards it to your system — including UI5 resources, cookies, CSRF tokens
-   and redirects.
+   and redirects. `Origin` and `Referer` are rewritten to the system's own
+   origin, so origin-validating CSRF checks accept the app's POSTs.
 3. The iframe loads `http://127.0.0.1:<port>/…`, so the app runs embedded
    without a 401.
 
@@ -146,7 +147,7 @@ Download the file from the
 **Through the terminal:**
 
 ```bash
-code --install-extension abap2ui5-0.9.1.vsix
+code --install-extension abap2ui5-0.9.2.vsix
 ```
 
 **Updating** means building a new `.vsix` with a higher version number and
@@ -178,7 +179,7 @@ npm install
 npm run vsix
 ```
 
-The result is a file such as `abap2ui5-0.9.1.vsix`.
+The result is a file such as `abap2ui5-0.9.2.vsix`.
 
 > `vsce` is included as a devDependency, so `npm run vsix` uses the local
 > version. Alternatively install it globally: `npm install -g @vscode/vsce`.
@@ -197,8 +198,8 @@ either
 - tag the commit yourself:
 
   ```bash
-  git tag v0.9.1
-  git push origin v0.9.1
+  git tag v0.9.2
+  git push origin v0.9.2
   ```
 
 Either way the workflow builds the `.vsix`, creates the GitHub release and

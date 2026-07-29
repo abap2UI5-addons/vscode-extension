@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2
+
+- **Fix: every button press in the embedded preview could fail** with
+  *"CSRF validation failed - cross-origin POST rejected"*. The embedded app
+  talks to the local auth proxy on `127.0.0.1`, so the browser sent that as
+  `Origin`/`Referer` while the forwarded request carried the SAP host — a
+  mismatch that origin-validating CSRF checks reject on every POST. The proxy
+  now rewrites both headers to the system's own origin, so the roundtrips look
+  same-origin to the server again.
+
 ## 0.9.1
 
 Reloading after activation now actually happens — however you activate

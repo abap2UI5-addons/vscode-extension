@@ -134,6 +134,21 @@ export class SapProxy {
     headers.host = target.host;
     headers.authorization = this.authHeader;
 
+    // The browser addresses the proxy, so it sends 127.0.0.1 as Origin and
+    // Referer while the forwarded Host is the SAP host. Origin-validating
+    // CSRF checks reject that mismatch on every POST ("CSRF validation
+    // failed - cross-origin POST rejected") - make the request look
+    // same-origin to the system again.
+    if (headers.origin) {
+      headers.origin = target.origin;
+    }
+    if (headers.referer) {
+      headers.referer = String(headers.referer).replace(
+        this.origin,
+        target.origin
+      );
+    }
+
     const options: https.RequestOptions = {
       protocol: target.protocol,
       hostname: target.hostname,
