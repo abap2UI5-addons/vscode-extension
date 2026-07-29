@@ -146,7 +146,7 @@
             "Never reload on its own - use the reload button, the status bar or F9."
           ],
           "default": "activation",
-          "markdownDescription": "When the preview of the shown app class reloads by itself.\n\n- `activation`: on **Ctrl+F3** (*abap2UI5: Activate and Reload Preview*), which activates the class through your ABAP tooling and then reloads. For sources opened from a system (scheme `adt`), an activation done any other way - the ABAP extension's own button, or Eclipse - is picked up too: while the preview is marked *not activated*, the class is watched on the server and the preview reloads as soon as it is active again. Saving alone leaves the server on the active version, so it only marks the preview as *not activated*.\n- `save`: on every save of the shown class.\n- `never`: only on F9, the reload button or the status bar."
+          "markdownDescription": "When the preview of the shown app class reloads by itself.\n\n- `activation`: on **Ctrl+F3** (*abap2UI5: Activate and Reload Preview*), which activates the class through your ABAP tooling and then reloads. An activation done any other way - the ABAP extension's own button, or Eclipse - is picked up too: while the preview is marked *not activated*, the class is watched on the server (through its ADT services) and the preview reloads as soon as it is active again. The **abap2UI5** output channel shows what the watch sees. Saving alone leaves the server on the active version, so it only marks the preview as *not activated*.\n- `save`: on every save of the shown class.\n- `never`: only on F9, the reload button or the status bar."
         },
         "abap2ui5.reloadOnSave": {
           "type": "boolean",

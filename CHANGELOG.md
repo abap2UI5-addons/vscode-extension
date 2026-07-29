@@ -9,6 +9,16 @@
   mismatch that origin-validating CSRF checks reject on every POST. The proxy
   now rewrites both headers to the system's own origin, so the roundtrips look
   same-origin to the server again.
+- **Fix: the activation watch only ever started for `adt:` documents.** Any
+  other way of editing a server-backed source never got the automatic reload
+  after activation. The watch now starts on every save of the shown class —
+  the server knows whether an inactive version exists, whatever the file's
+  URI scheme is. (Sources that never reach a server simply never show up as
+  inactive, so nothing reloads there either.)
+- **New output channel `abap2UI5`** (View → Output): the activation watch says
+  what it is doing there — started, class inactive, active again → reload, or
+  the reason it stops (ADT unreachable, timeout). When an automatic reload
+  does not happen, this is the place that says why.
 
 ## 0.9.1
 

@@ -109,7 +109,9 @@ The key is only taken over for ABAP objects opened from a system (scheme
 > with Ctrl+F3, the ABAP remote filesystem's own button, or even from Eclipse.
 > The watch requires the ADT services (`/sap/bc/adt`) to answer on the
 > launch-URL host; where they don't, the badge simply stays until you reload
-> (click the badge, the toolbar button, the status bar or F9).
+> (click the badge, the toolbar button, the status bar or F9). The **abap2UI5**
+> output channel (View → Output) shows what the watch sees — the place to look
+> when the automatic reload does not happen.
 
 > The predecessor `abap2ui5.reloadOnSave` still works while `abap2ui5.reloadOn`
 > is unset: `false` behaves like `never`, `true` like `save`.

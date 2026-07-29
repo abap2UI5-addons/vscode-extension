@@ -163,6 +163,14 @@ let currentTarget: AppTarget | undefined;
 
 let statusItem: vscode.StatusBarItem | undefined;
 
+let output: vscode.OutputChannel | undefined;
+
+/** Writes to the "abap2UI5" output channel (View → Output). */
+function log(message: string): void {
+  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+  output?.appendLine(`${stamp}  ${message}`);
+}
+
 function updateStatusItem(): void {
   if (!statusItem) {
     return;
@@ -558,7 +566,15 @@ function startActivationWatch(
   provider: PreviewViewProvider
 ): void {
   stopActivationWatch();
-  if (adtWatchUnavailable || !currentTarget || !proxy.isRunning) {
+  if (!currentTarget) {
+    return;
+  }
+  if (adtWatchUnavailable) {
+    log("activation watch: not started - ADT already refused earlier this session");
+    return;
+  }
+  if (!proxy.isRunning) {
+    log("activation watch: not started - no auth proxy (openMode external?)");
     return;
   }
   const gen = activationWatchGen;
@@ -572,10 +588,17 @@ function startActivationWatch(
   } catch {
     // no client parameter, the system's default client answers
   }
+  log(
+    `activation watch: started for ${className}` +
+      (sapClient ? ` (client ${sapClient})` : "")
+  );
   // Saving through the ABAP filesystem uploads the source as an inactive
   // version; insist on seeing that before "active" counts as the activation,
-  // so an upload still in flight is not mistaken for one.
+  // so an upload still in flight is not mistaken for one. A source that does
+  // not live on the server never shows up as inactive - the watch then just
+  // runs into its timeout without doing anything.
   let sawInactive = false;
+  let lastSeen: string | undefined; // last logged answer, to log changes only
 
   const tick = async (): Promise<void> => {
     activationWatchTimer = undefined;
@@ -592,25 +615,51 @@ function startActivationWatch(
       if (err instanceof AdtStatusError && err.status >= 400 && err.status < 500) {
         // Not authorized / not exposed: it will not start answering later.
         adtWatchUnavailable = true;
+        log(
+          `activation watch: ADT answered ${err.status} - giving up for this ` +
+            "session (is /sap/bc/adt active on the launch-URL host?)"
+        );
         return;
       }
       version = null; // network hiccup or 5xx: try again
+      const reason = err instanceof Error ? err.message : String(err);
+      if (lastSeen !== `error:${reason}`) {
+        lastSeen = `error:${reason}`;
+        log(`activation watch: request failed (${reason}) - retrying`);
+      }
     }
     if (gen !== activationWatchGen) {
       return;
     }
-    if (version === "inactive") {
+    if (version === "inactive" && !sawInactive) {
       sawInactive = true;
+      log(`activation watch: ${className} is inactive on the server`);
     }
     if (version === "active" && sawInactive) {
+      log(`activation watch: ${className} is active again - reloading`);
       reloadShownApp(provider, "Reloaded after activation");
       return;
     }
+    if (version === "active" && lastSeen !== "active") {
+      log(
+        `activation watch: ${className} is (still) active - waiting for the ` +
+          "save to arrive on the server"
+      );
+    }
     if (version === undefined) {
-      return; // answered, but without a version: nothing to watch
+      log(
+        "activation watch: the ADT answer contained no version - stopping " +
+          "(unexpected service behind /sap/bc/adt?)"
+      );
+      return;
+    }
+    if (version !== null) {
+      lastSeen = version;
     }
     if (Date.now() < deadline) {
       activationWatchTimer = setTimeout(() => void tick(), ACTIVATION_POLL_MS);
+    } else {
+      log("activation watch: no activation within 10 minutes - giving up, reload manually");
     }
   };
   activationWatchTimer = setTimeout(() => void tick(), ACTIVATION_POLL_MS);
@@ -623,6 +672,9 @@ function startActivationWatch(
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new PreviewViewProvider();
   const proxy = new SapProxy();
+
+  output = vscode.window.createOutputChannel("abap2UI5");
+  context.subscriptions.push(output);
 
   statusItem = vscode.window.createStatusBarItem(
     "abap2ui5.status",
@@ -692,11 +744,11 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       if (trigger === "activation") {
         postToShownApp(provider, staleMessage("Saved - activate to update"));
-        // For sources living on a system, notice the activation itself —
-        // however it is done — and reload then.
-        if (doc.uri.scheme === "adt") {
-          startActivationWatch(proxy, provider);
-        }
+        // Notice the activation itself — however it is done — and reload
+        // then. Deliberately not limited to a URI scheme: whichever way the
+        // source reaches the server, the server knows whether an inactive
+        // version exists.
+        startActivationWatch(proxy, provider);
         return;
       }
       // Keep focus in the code in case the reloading app tries to grab it.
