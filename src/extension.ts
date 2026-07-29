@@ -750,6 +750,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   output = vscode.window.createOutputChannel("abap2UI5");
   context.subscriptions.push(output);
+  // First line of every session: which build is actually running.
+  log(
+    `extension ${String(context.extension.packageJSON.version ?? "?")} activated`
+  );
 
   statusItem = vscode.window.createStatusBarItem(
     "abap2ui5.status",

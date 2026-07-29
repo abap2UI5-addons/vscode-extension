@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.2
+## 0.9.3
 
 - **Fix: every button press in the embedded preview could fail** with
   *"CSRF validation failed - cross-origin POST rejected"*. The embedded app

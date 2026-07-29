@@ -149,7 +149,7 @@ Download the file from the
 **Through the terminal:**
 
 ```bash
-code --install-extension abap2ui5-0.9.2.vsix
+code --install-extension abap2ui5-0.9.3.vsix
 ```
 
 **Updating** means building a new `.vsix` with a higher version number and
@@ -181,7 +181,7 @@ npm install
 npm run vsix
 ```
 
-The result is a file such as `abap2ui5-0.9.2.vsix`.
+The result is a file such as `abap2ui5-0.9.3.vsix`.
 
 > `vsce` is included as a devDependency, so `npm run vsix` uses the local
 > version. Alternatively install it globally: `npm install -g @vscode/vsce`.
@@ -200,8 +200,8 @@ either
 - tag the commit yourself:
 
   ```bash
-  git tag v0.9.2
-  git push origin v0.9.2
+  git tag v0.9.3
+  git push origin v0.9.3
   ```
 
 Either way the workflow builds the `.vsix`, creates the GitHub release and
