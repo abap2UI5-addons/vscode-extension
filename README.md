@@ -89,15 +89,22 @@ does. That is why the preview reloads on activation and not on every save:
 | `save` | Reload on every save of the shown class — for setups in which saving already publishes the change |
 | `never` | Only F9, the reload button in the preview or the status bar reload |
 
-**Ctrl+F3** (`Cmd+F3` on macOS) runs *abap2UI5: Activate and Reload Preview*.
-It delegates the activation itself to the ABAP extension you already use — the
+**Ctrl+F3** (`Cmd+F3` on macOS, the activation key from SAP GUI) runs
+*abap2UI5: Activate and Reload Preview*: it saves the class, hands the
+activation to the ABAP extension you already use — the
 [ABAP remote filesystem](https://marketplace.visualstudio.com/items?itemName=murbani.vscode-abap-remote-fs)
-extension. Without such an extension installed, Ctrl+F3 keeps its usual VS Code
-meaning and the preview simply refreshes.
+extension and its `abapfs.activate` — and reloads the preview afterwards. The
+same command sits behind the ⚡ button in the editor toolbar.
 
-If Ctrl+F3 is taken by another extension, bind the command to a key of your own
-(Keyboard Shortcuts → *abap2UI5: Activate and Reload Preview*) or use the ⚡
-button in the editor toolbar.
+The key is only taken over for ABAP objects opened from a system (scheme
+`adt`) while such an extension is installed. Everywhere else Ctrl+F3 keeps its
+usual VS Code meaning.
+
+> Activating with the ABAP remote filesystem's own shortcut
+> (**Alt+Shift+F3**) does not reach this extension — VS Code gives no
+> notification when another extension activates an object. The preview then
+> keeps its *not activated* badge until you reload it (toolbar button, status
+> bar or F9). Use Ctrl+F3 to get both in one keystroke.
 
 > The predecessor `abap2ui5.reloadOnSave` still works while `abap2ui5.reloadOn`
 > is unset: `false` behaves like `never`, `true` like `save`.

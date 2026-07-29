@@ -450,15 +450,29 @@ async function runApp(
 /**
  * Activation commands of the ABAP extensions we know about, in the order they
  * are tried. Ctrl+F3 delegates to the first one that is actually installed.
+ *
+ * `abapfs.activate` is the ABAP remote filesystem extension; it activates the
+ * object of the active editor and saves it first if it is dirty.
  */
 const ABAP_ACTIVATE_COMMANDS = ["abapfs.activate"];
-
-/** What Ctrl+F3 does in VS Code when no ABAP tooling is installed. */
-const CTRL_F3_FALLBACK = "editor.action.nextSelectionMatchFindAction";
 
 async function findAbapActivateCommand(): Promise<string | undefined> {
   const available = new Set(await vscode.commands.getCommands(true));
   return ABAP_ACTIVATE_COMMANDS.find((command) => available.has(command));
+}
+
+/**
+ * Gates the Ctrl+F3 binding and the editor toolbar button: without ABAP
+ * tooling there is nothing to activate, and Ctrl+F3 keeps the meaning VS Code
+ * gives it.
+ */
+async function updateAbapToolingContext(): Promise<void> {
+  const found = !!(await findAbapActivateCommand());
+  await vscode.commands.executeCommand(
+    "setContext",
+    `${CONFIG_SECTION}.hasAbapTooling`,
+    found
+  );
 }
 
 /**
@@ -472,11 +486,12 @@ async function activateAndReload(provider: PreviewViewProvider): Promise<void> {
   const activateCommand = await findAbapActivateCommand();
 
   if (!activateCommand) {
-    // No ABAP tooling: keep the normal Ctrl+F3 behaviour in the editor and
-    // just refresh what is shown.
-    if (isAbap) {
-      await vscode.commands.executeCommand(CTRL_F3_FALLBACK);
-    }
+    // Nothing to delegate to (the key binding is not active in this case, so
+    // this is a deliberate call from the palette): reload what is shown and
+    // say why nothing was activated.
+    vscode.window.showInformationMessage(
+      "abap2UI5: no ABAP extension with an activation command found - activate the class in your ABAP tooling, the preview only reloads."
+    );
     if (currentTarget) {
       reloadShownApp(provider, "Reloaded");
     }
@@ -528,6 +543,11 @@ export function activate(context: vscode.ExtensionContext): void {
   statusItem.name = "abap2UI5";
   statusItem.command = "abap2ui5.reload";
   updateStatusItem();
+
+  void updateAbapToolingContext();
+  context.subscriptions.push(
+    vscode.extensions.onDidChange(() => void updateAbapToolingContext())
+  );
 
   context.subscriptions.push(
     statusItem,

@@ -75,7 +75,7 @@
         },
         {
           "command": "abap2ui5.activate",
-          "when": "resourceLangId == abap",
+          "when": "resourceLangId == abap && abap2ui5.hasAbapTooling && resourceScheme == adt",
           "group": "navigation@2"
         }
       ],
@@ -97,7 +97,7 @@
         "command": "abap2ui5.activate",
         "key": "ctrl+f3",
         "mac": "cmd+f3",
-        "when": "editorTextFocus && editorLangId == abap"
+        "when": "editorTextFocus && editorLangId == abap && abap2ui5.hasAbapTooling && resourceScheme == adt"
       }
     ],
     "viewsContainers": {
