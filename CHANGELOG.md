@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.2
+## 0.9.3
 
 - **Fix: every button press in the embedded preview could fail** with
   *"CSRF validation failed - cross-origin POST rejected"*. The embedded app
@@ -15,14 +15,18 @@
   the server knows whether an inactive version exists, whatever the file's
   URI scheme is. (Sources that never reach a server simply never show up as
   inactive, so nothing reloads there either.)
-- **Fix: an activation right after the save was missed.** The watch first
-  looked at the server 2.5 seconds after the save. An activation that was done
-  by then — activating immediately, or activating with a tool that saves as
-  part of it — left nothing inactive to see, and the watch kept waiting for a
-  version it had already missed, so only the first (slow) cycle ever reloaded.
-  The first look now happens a quarter of a second after the save, when the
-  freshly uploaded inactive version is guaranteed to still be there, and the
-  watch then checks every 1.5 seconds.
+- **Fix: an activation right after the save was missed.** The watch used to
+  wait for the class to show up as *inactive* before an *active* answer would
+  count as the activation. Activating directly — where the save is part of the
+  activation — can be finished on a fast system before the watch ever looks,
+  so there was nothing inactive to see and the watch waited for a flip it had
+  already missed; only a slow save-then-activate cycle ever reloaded. The
+  watch now also remembers the **change timestamp** of the class the preview
+  shows: *active with a newer change timestamp* is a finished activation, no
+  matter how fast it went. (Sources that never reach the server keep their
+  timestamp, so purely local saves still reload nothing.) The first look at
+  the server also moved from 2.5 seconds after the save to a quarter of a
+  second, with checks every 1.5 seconds after that.
 - **New output channel `abap2UI5`** (View → Output): the activation watch says
   what it is doing there — started, class inactive, active again → reload, or
   the reason it stops (ADT unreachable, timeout). When an automatic reload

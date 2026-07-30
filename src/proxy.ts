@@ -9,6 +9,13 @@ export class AdtStatusError extends Error {
   }
 }
 
+/** What the ADT metadata of a class says about its current state. */
+export interface AdtClassState {
+  version?: "active" | "inactive";
+  /** Timestamp of the last change, e.g. `2026-07-29T23:28:37Z`. */
+  changedAt?: string;
+}
+
 /**
  * Small local reverse proxy: accepts requests on 127.0.0.1 and forwards them
  * to the SAP system, injecting the basic-auth header into EVERY request. That
@@ -62,16 +69,17 @@ export class SapProxy {
    * (`/sap/bc/adt/oo/classes/<name>`), using the credentials the proxy already
    * injects. The root element's `adtcore:version` attribute is `inactive`
    * while a saved-but-not-activated version exists and flips back to `active`
-   * on activation — the only way to notice an activation done outside this
-   * extension, since VS Code has no event for it.
+   * on activation, and `adtcore:changedAt` moves with every change — together
+   * the only way to notice an activation done outside this extension, since
+   * VS Code has no event for it.
    *
-   * Resolves to the version, or undefined when the answer has none. Rejects
-   * with an {@link AdtStatusError} on a non-2xx status.
+   * Resolves to whatever of the two the answer carried. Rejects with an
+   * {@link AdtStatusError} on a non-2xx status.
    */
-  fetchClassVersion(
+  fetchClassState(
     className: string,
     sapClient?: string
-  ): Promise<"active" | "inactive" | undefined> {
+  ): Promise<AdtClassState> {
     const target = this.target;
     const auth = this.authHeader;
     if (!target || !auth) {
@@ -113,8 +121,15 @@ export class SapProxy {
               reject(new AdtStatusError(status));
               return;
             }
-            const match = body.match(/adtcore:version="(active|inactive)"/);
-            resolve(match ? (match[1] as "active" | "inactive") : undefined);
+            // First occurrences in document order sit on the root element.
+            const version = body.match(/adtcore:version="(active|inactive)"/);
+            const changedAt = body.match(/adtcore:changedAt="([^"]+)"/);
+            resolve({
+              version: version
+                ? (version[1] as "active" | "inactive")
+                : undefined,
+              changedAt: changedAt ? changedAt[1] : undefined,
+            });
           });
         }
       );
