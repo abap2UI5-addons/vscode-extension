@@ -9,7 +9,10 @@
   the instance is serialized and the method stack is not), an event
   nothing handles, and the obsolete `client->_bind_edit( )`. No UI5
   tooling can see these - they live in the relationship between the
-  ABAP class and the view it builds.
+  ABAP class and the view it builds. Also caught: an ABAP boolean
+  written straight into the view - it arrives as `'X'`/`' '`, and since
+  UI5 reads any non-empty string as true, `visible = abap_false` makes
+  the control *visible*. Wrap it in `z2ui5_cl_ai_xml=>as_bool( )`.
 - **More view checks:** a duplicate `id` (a runtime error), a namespace
   prefix used but never declared, unbalanced braces in `{= … }`
   expression bindings, and two unambiguous accessibility defects

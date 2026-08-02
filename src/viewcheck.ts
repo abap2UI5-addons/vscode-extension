@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { spawn } from "child_process";
+import { checkAbapRules } from "@abap2ui5/linter/abap-rules";
 import { prepareAbap } from "@abap2ui5/linter/reconstruct";
 import {
   checkNodes,
@@ -129,6 +130,11 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 
 function findingMessage(f: PropertyFinding): string {
   switch (f.type) {
+    case "unconverted-abap-boolean":
+      return (
+        `${f.member}: the ABAP boolean ${f.value} reaches the view as 'X'/' ' - ` +
+        "wrap it in z2ui5_cl_ai_xml=>as_bool( )"
+      );
     case "unknown-binding-path":
       return `the model has no path {${f.value}} - this stays silently empty`;
     case "binding-for-event":
@@ -199,6 +205,7 @@ const ERROR_TYPES = new Set([
   "invalid-expression-binding",
   "binding-for-event",
   "event-for-property",
+  "unconverted-abap-boolean",
 ]);
 
 function toDiagnostics(
@@ -477,6 +484,8 @@ async function checkDocument(
       for (const node of prep.nodes) {
         findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow, distribution }));
       }
+      // rules that need the class itself, not just the view tree
+      findings.push(...checkAbapRules(text));
       renderable = prep.docs.length > 0 && prep.helperTokens === 0;
       if (prep.helperTokens > 0) {
         helperNote =

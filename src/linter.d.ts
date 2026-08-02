@@ -62,3 +62,9 @@ declare module "@abap2ui5/linter/properties" {
     }
   ): PropertyFinding[];
 }
+
+declare module "@abap2ui5/linter/abap-rules" {
+  import type { PropertyFinding } from "@abap2ui5/linter/properties";
+
+  export function checkAbapRules(source: string): PropertyFinding[];
+}
