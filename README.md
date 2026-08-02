@@ -131,25 +131,25 @@ than your system's UI5 version normally fails at runtime in the browser. The
 extension runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
 gates instead, in the editor:
 
-- **Property gate** — every control and property written in the view is
-  resolved against a UI5 metadata snapshot. Anything newer than the
-  configured UI5 floor (default **1.71**) or deprecated becomes a warning in
-  the Problems panel.
+- **Property gate** — bundled with the extension, zero setup, instant:
+  every control and property written in the view is resolved against a UI5
+  metadata snapshot. A control that does not exist at all (`sap.m.Shell2` —
+  a typo) is an error; anything newer than the configured UI5 floor
+  (default **1.71**) or deprecated is a warning.
 - **Render gate** (optional, `abap2ui5.viewCheck.render`) — the view is
-  loaded with a real `XMLView.create` in headless Chromium, so unknown
-  controls, broken expression bindings and type violations fail too. Needs
-  `npx playwright install chromium` once in the checker's environment.
+  loaded with a real `XMLView.create` in headless Chromium, so broken
+  expression bindings and property-type violations fail too. This gate runs
+  the external ai-view-check CLI: clone it, run `npm ci` and
+  `npx playwright install chromium` in it, and point
+  `abap2ui5.mcp.reposRoot` at its parent folder (it then runs with VS
+  Code's own Node.js — nothing needs to be on the PATH), or set
+  `abap2ui5.viewCheck.command`.
 
 Checked are ABAP classes building views with the generic `z2ui5_cl_ai_xml`
 builder and raw `*.view.xml` / `*.fragment.xml` files — on every save
 (`abap2ui5.viewCheck.onSave`) and on demand with *"abap2UI5: Check Views
-(Static)"*.
-
-The checker itself is not bundled: by default it is fetched once with
-`npx --yes github:abap2UI5/ai-view-check` (cached by npm afterwards). With a
-local checkout — for example next to the other repos under
-`abap2ui5.mcp.reposRoot` — the extension uses that instead, and
-`abap2ui5.viewCheck.command` overrides the command entirely.
+(Static)"*. Documents from the ABAP remote filesystem (`adt` scheme) and
+unsaved buffers work too.
 
 ## MCP server (`abap2ui5.mcp.*`)
 

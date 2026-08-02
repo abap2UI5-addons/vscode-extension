@@ -3,15 +3,26 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { spawn } from "child_process";
+import { prepareAbap } from "@abap2ui5/view-check/reconstruct";
+import {
+  checkNodes,
+  loadSnapshot,
+  parseXml,
+  PropertyFinding,
+} from "@abap2ui5/view-check/properties";
 
 /*
  * Static view validation through ai-view-check
- * (https://github.com/abap2UI5/ai-view-check): every control and property
- * written in a view is resolved against a UI5 metadata snapshot (the
- * property gate), optionally followed by a headless XMLView.create render.
- * Findings are surfaced as editor diagnostics - a typo'd property or a
- * control newer than the UI5 floor shows up before the app ever reaches a
- * system.
+ * (https://github.com/abap2UI5/ai-view-check).
+ *
+ * The property gate runs INSIDE the extension: the checker library and its
+ * UI5 metadata snapshot are bundled, so unknown controls (typos), controls
+ * or properties newer than the configured UI5 floor and deprecations show
+ * up as diagnostics with zero setup - no node, npx or network involved.
+ *
+ * Only the optional render gate (a real XMLView.create in headless
+ * Chromium) needs the external ai-view-check CLI, because it serves the
+ * OpenUI5 runtime from its own node_modules and drives a browser.
  */
 
 const CONFIG_SECTION = "abap2ui5";
@@ -22,61 +33,30 @@ const BUILDER_RE = /z2ui5_cl_ai_xml/i;
 
 const VIEW_XML_RE = /\.(view|fragment)\.xml$/i;
 
-interface Finding {
-  type: string;
-  control?: string;
-  member?: string;
-  since?: string;
-  minUi5?: string;
-  deprecated?: string | boolean;
-}
-
-interface CheckResult {
-  file: string;
-  kind: string;
-  usesBuilder: boolean;
-  findings: Finding[];
+interface RenderResult {
   renderErrors: string[];
   skippedRender: boolean;
-  helperTokens: number;
-  notes: string[];
 }
 
-interface CheckReport {
-  files: number;
-  failing: number;
-  skipped: number;
-  results: CheckResult[];
-}
-
-/** Set when spawning the checker failed once - avoids a warning on every save. */
+/** Set when spawning the external render checker failed once - avoids a
+ *  warning on every save. */
 let spawnFailed = false;
 
 let running = false;
+
+let snapshotCache: unknown;
 
 function config() {
   return vscode.workspace.getConfiguration(CONFIG_SECTION);
 }
 
-/**
- * The command used to run the checker. An explicit setting wins; otherwise a
- * local `ai-view-check` checkout next to the configured repos root is
- * preferred (fast, no download), falling back to npx fetching the published
- * source from GitHub.
- */
-function checkerCommand(): string[] {
-  const explicit = config().get<string>("viewCheck.command", "").trim();
-  if (explicit) {
-    return explicit.split(/\s+/);
+/** The bundled UI5 metadata snapshot - copied next to the bundle by the
+ *  build (see esbuild.js). */
+function snapshot(): unknown {
+  if (snapshotCache === undefined) {
+    snapshotCache = loadSnapshot(path.join(__dirname, "properties.json"));
   }
-  const root = config().get<string>("mcp.reposRoot", "").trim();
-  if (root) {
-    const cli = path.join(root, "ai-view-check", "cli.mjs");
-    if (fs.existsSync(cli)) {
-      return ["node", cli];
-    }
-  }
-  return ["npx", "--yes", "github:abap2UI5/ai-view-check"];
+  return snapshotCache;
 }
 
 /** Checkable = a view/fragment XML, or any document whose text uses the
@@ -122,7 +102,7 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
   return doc.lineAt(0).range;
 }
 
-function findingMessage(f: Finding): string {
+function findingMessage(f: PropertyFinding): string {
   if (f.type === "unknown-control") {
     return `${f.control} does not exist in UI5 - typo?`;
   }
@@ -137,10 +117,11 @@ function findingMessage(f: Finding): string {
 
 function toDiagnostics(
   doc: vscode.TextDocument,
-  result: CheckResult
+  findings: PropertyFinding[],
+  renderErrors: string[]
 ): vscode.Diagnostic[] {
   const diags: vscode.Diagnostic[] = [];
-  for (const f of result.findings) {
+  for (const f of findings) {
     const local = (f.control ?? "").split(".").pop() ?? "";
     const d = new vscode.Diagnostic(
       findingRange(doc, f.member || local),
@@ -153,7 +134,7 @@ function toDiagnostics(
     d.code = f.member ? `${f.control}.${f.member}` : f.control;
     diags.push(d);
   }
-  for (const e of result.renderErrors) {
+  for (const e of renderErrors) {
     const d = new vscode.Diagnostic(
       doc.lineAt(0).range,
       `render: ${e.slice(0, 300)}`,
@@ -163,6 +144,29 @@ function toDiagnostics(
     diags.push(d);
   }
   return diags;
+}
+
+// ---------------------------------------------------------------------------
+// External render gate (optional)
+// ---------------------------------------------------------------------------
+
+/** The command used to run the external checker CLI for the render gate. An
+ *  explicit setting wins; otherwise a local `ai-view-check` checkout next to
+ *  the configured repos root is preferred (runs with VS Code's own Node.js),
+ *  falling back to npx fetching the source from GitHub. */
+function checkerCommand(): string[] {
+  const explicit = config().get<string>("viewCheck.command", "").trim();
+  if (explicit) {
+    return explicit.split(/\s+/);
+  }
+  const root = config().get<string>("mcp.reposRoot", "").trim();
+  if (root) {
+    const cli = path.join(root, "ai-view-check", "cli.mjs");
+    if (fs.existsSync(cli)) {
+      return ["node", cli];
+    }
+  }
+  return ["npx", "--yes", "github:abap2UI5/ai-view-check"];
 }
 
 /** The extension host often runs with a minimal PATH (a GUI-launched VS Code
@@ -181,64 +185,6 @@ function spawnEnv(): NodeJS.ProcessEnv {
   return { ...process.env, PATH: parts.join(path.delimiter) };
 }
 
-function runChecker(
-  args: string[],
-  cwd: string,
-  log: (m: string) => void
-): Promise<CheckReport | undefined> {
-  const [cmd, ...rest] = checkerCommand();
-  const full = [...rest, ...args];
-  log(`view-check: ${cmd} ${full.join(" ")}`);
-  return new Promise((resolve) => {
-    const child =
-      cmd === "node"
-        ? // run with the Node.js inside VS Code itself - works without any
-          // node installation on the PATH
-          spawn(process.execPath, full, {
-            cwd,
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-          })
-        : spawn(cmd, full, {
-            cwd,
-            env: spawnEnv(),
-            shell: process.platform === "win32",
-          });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (c) => (stdout += String(c)));
-    child.stderr.on("data", (c) => (stderr += String(c)));
-    child.on("error", (err) => {
-      log(`view-check: failed to start - ${String(err)}`);
-      if (!spawnFailed) {
-        spawnFailed = true;
-        vscode.window.showWarningMessage(
-          `abap2UI5: could not start the view checker (${cmd} was not found). ` +
-            "Easiest fix: clone https://github.com/abap2UI5/ai-view-check, run " +
-            "`npm ci` in it, and point abap2ui5.mcp.reposRoot at its parent " +
-            "folder - it then runs with VS Code's own Node.js, no PATH needed. " +
-            "Details in the abap2UI5 output channel."
-        );
-      }
-      resolve(undefined);
-    });
-    child.on("close", () => {
-      // --advisory keeps the exit code at 0; findings live in the JSON
-      const start = stdout.indexOf("{");
-      if (start < 0) {
-        log(`view-check: no JSON in output${stderr ? ` - stderr: ${stderr.slice(0, 400)}` : ""}`);
-        resolve(undefined);
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout.slice(start)) as CheckReport);
-      } catch (err) {
-        log(`view-check: broken JSON output - ${String(err)}`);
-        resolve(undefined);
-      }
-    });
-  });
-}
-
 /** The checker is a CLI working on files, but the document may be unsaved or
  *  not a file on disk at all (the `adt` scheme of the ABAP remote
  *  filesystem) - so the buffer is written to a scratch file first. The name
@@ -248,11 +194,91 @@ function scratchFileFor(doc: vscode.TextDocument, dir: string): string {
   if (VIEW_XML_RE.test(base) || base.endsWith(".clas.abap")) {
     return path.join(dir, base);
   }
-  return path.join(
-    dir,
-    doc.languageId === "abap" ? `${path.parse(base).name}.clas.abap` : base
-  );
+  return path.join(dir, `${path.parse(base).name}.clas.abap`);
 }
+
+function runRenderGate(
+  doc: vscode.TextDocument,
+  log: (m: string) => void
+): Promise<RenderResult | undefined> {
+  const scratchDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "abap2ui5-viewcheck-")
+  );
+  const scratch = scratchFileFor(doc, scratchDir);
+  fs.writeFileSync(scratch, doc.getText());
+
+  const [cmd, ...rest] = checkerCommand();
+  const args = [...rest, scratch, "--json", "--advisory", "--no-properties"];
+  const cwd =
+    vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? os.homedir();
+  log(`view-check: render gate - ${cmd} ${args.join(" ")}`);
+
+  return new Promise((resolve) => {
+    const done = (result: RenderResult | undefined) => {
+      fs.rmSync(scratchDir, { recursive: true, force: true });
+      resolve(result);
+    };
+    const child =
+      cmd === "node"
+        ? // run with the Node.js inside VS Code itself - works without any
+          // node installation on the PATH
+          spawn(process.execPath, args, {
+            cwd,
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+          })
+        : spawn(cmd, args, {
+            cwd,
+            env: spawnEnv(),
+            shell: process.platform === "win32",
+          });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => (stdout += String(c)));
+    child.stderr.on("data", (c) => (stderr += String(c)));
+    child.on("error", (err) => {
+      log(`view-check: render gate failed to start - ${String(err)}`);
+      if (!spawnFailed) {
+        spawnFailed = true;
+        vscode.window.showWarningMessage(
+          `abap2UI5: the render gate needs the ai-view-check CLI, and ${cmd} ` +
+            "was not found. Clone https://github.com/abap2UI5/ai-view-check, " +
+            "run `npm ci` and `npx playwright install chromium` in it, and " +
+            "point abap2ui5.mcp.reposRoot at its parent folder. The property " +
+            "gate keeps working without it."
+        );
+      }
+      done(undefined);
+    });
+    child.on("close", () => {
+      const start = stdout.indexOf("{");
+      if (start < 0) {
+        log(
+          `view-check: render gate produced no JSON` +
+            (stderr ? ` - stderr: ${stderr.slice(0, 400)}` : "")
+        );
+        done(undefined);
+        return;
+      }
+      try {
+        const report = JSON.parse(stdout.slice(start)) as {
+          results?: Array<{ renderErrors?: string[]; skippedRender?: boolean }>;
+        };
+        const r = report.results?.[0];
+        done({
+          renderErrors: r?.renderErrors ?? [],
+          skippedRender: r?.skippedRender ?? false,
+        });
+      } catch (err) {
+        log(`view-check: render gate returned broken JSON - ${String(err)}`);
+        done(undefined);
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The check itself
+// ---------------------------------------------------------------------------
 
 async function checkDocument(
   doc: vscode.TextDocument,
@@ -264,54 +290,67 @@ async function checkDocument(
     return;
   }
   running = true;
-  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "abap2ui5-viewcheck-"));
   try {
-    const scratch = scratchFileFor(doc, scratchDir);
-    fs.writeFileSync(scratch, doc.getText());
     const cfg = config();
-    const args = [scratch, "--json", "--advisory"];
-    args.push("--min-ui5", cfg.get<string>("viewCheck.minUi5", "1.71"));
-    if (!cfg.get<boolean>("viewCheck.render", false)) {
-      args.push("--no-render");
-    }
-    for (const allow of cfg.get<string[]>("viewCheck.allow", [])) {
-      args.push("--allow", allow);
-    }
-    const cwd =
-      vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ??
-      os.homedir();
-    const report = await runChecker(args, cwd, log);
-    if (!report) {
-      return;
-    }
-    const result = report.results[0];
-    if (!result) {
-      diagnostics.delete(doc.uri);
-      log(
-        `view-check: ${path.basename(doc.fileName)} - nothing checkable ` +
-          "(the checker looks for z2ui5_cl_ai_xml=>factory in *.clas.abap)"
+    const minUi5 = cfg.get<string>("viewCheck.minUi5", "1.71");
+    const allow = cfg.get<string[]>("viewCheck.allow", []);
+    const text = doc.getText();
+    const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
+
+    // property gate - in-process, instant
+    const findings: PropertyFinding[] = [];
+    let renderable = true;
+    let helperNote = "";
+    if (isXml) {
+      findings.push(
+        ...checkNodes(parseXml(text), { data: snapshot(), minUi5, allow })
       );
-      if (announce) {
-        vscode.window.showInformationMessage(
-          `abap2UI5: nothing to check in ${path.basename(doc.fileName)} - ` +
-            "the checker looks for views built with z2ui5_cl_ai_xml=>factory."
+    } else {
+      const prep = prepareAbap(text);
+      if (!prep.usesBuilder) {
+        diagnostics.delete(doc.uri);
+        log(
+          `view-check: ${path.basename(doc.fileName)} - nothing checkable ` +
+            "(no z2ui5_cl_ai_xml=>factory call found)"
         );
+        if (announce) {
+          vscode.window.showInformationMessage(
+            `abap2UI5: nothing to check in ${path.basename(doc.fileName)} - ` +
+              "the checker looks for views built with z2ui5_cl_ai_xml=>factory."
+          );
+        }
+        return;
       }
-      return;
+      for (const node of prep.nodes) {
+        findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow }));
+      }
+      renderable = prep.docs.length > 0 && prep.helperTokens === 0;
+      if (prep.helperTokens > 0) {
+        helperNote =
+          " (render gate skipped - view built in helper methods)";
+      }
     }
-    const diags = toDiagnostics(doc, result);
+
+    // render gate - optional, external
+    let renderErrors: string[] = [];
+    if (cfg.get<boolean>("viewCheck.render", false) && renderable && !spawnFailed) {
+      const render = await runRenderGate(doc, log);
+      renderErrors = render?.renderErrors ?? [];
+      if (render?.skippedRender) {
+        helperNote = " (render gate skipped - view built in helper methods)";
+      }
+    }
+
+    const diags = toDiagnostics(doc, findings, renderErrors);
     diagnostics.set(doc.uri, diags);
-    const skipNote = result.skippedRender
-      ? " (render gate skipped - view built in helper methods)"
-      : "";
     log(
       `view-check: ${path.basename(doc.fileName)} - ` +
-        `${result.findings.length} finding(s), ${result.renderErrors.length} render error(s)${skipNote}`
+        `${findings.length} finding(s), ${renderErrors.length} render error(s)${helperNote}`
     );
     if (announce) {
       if (diags.length === 0) {
         vscode.window.showInformationMessage(
-          `abap2UI5: view check passed for ${path.basename(doc.fileName)}${skipNote}.`
+          `abap2UI5: view check passed for ${path.basename(doc.fileName)}${helperNote}.`
         );
       } else {
         vscode.window.showWarningMessage(
@@ -322,7 +361,6 @@ async function checkDocument(
     }
   } finally {
     running = false;
-    fs.rmSync(scratchDir, { recursive: true, force: true });
   }
 }
 
@@ -356,7 +394,7 @@ export function registerViewCheck(
       if (!config().get<boolean>("viewCheck.onSave", true)) {
         return;
       }
-      if (spawnFailed || !isCheckable(doc)) {
+      if (!isCheckable(doc)) {
         return;
       }
       void checkDocument(doc, diagnostics, log, false);
