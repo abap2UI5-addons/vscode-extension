@@ -138,11 +138,14 @@ gates instead, in the editor:
   (default **1.71**) or deprecated is a warning.
 - **Render gate** (optional, `abap2ui5.viewCheck.render`) — the view is
   loaded with a real `XMLView.create` in headless Chromium, so broken
-  expression bindings and property-type violations fail too. This gate runs
-  the external ai-view-check CLI: clone it, run `npm ci` and
-  `npx playwright install chromium` in it, and point
-  `abap2ui5.mcp.reposRoot` at its parent folder (it then runs with VS
-  Code's own Node.js — nothing needs to be on the PATH), or set
+  expression bindings and property-type violations fail too. Install it
+  once with *"abap2UI5: Install Render Gate"*: the command downloads the
+  self-contained checker bundle (~30 MB, published by ai-view-check's CI)
+  and Chromium into the extension's storage and runs everything with VS
+  Code's own runtime — no node, npm or PATH setup on the machine.
+  Alternatively point `abap2ui5.mcp.reposRoot` at a folder containing your
+  own `ai-view-check` checkout (`npm ci` +
+  `npx playwright install chromium` done), or set
   `abap2ui5.viewCheck.command`.
 
 Checked are ABAP classes building views with the generic `z2ui5_cl_ai_xml`
@@ -199,6 +202,7 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2UI5: Activate and Reload Preview (Ctrl+F3)` | Activates the class through your ABAP tooling, then reloads the preview |
 | `abap2UI5: Reload Preview` | Reloads the app currently shown |
 | `abap2UI5: Check Views (Static)` | Runs the static view check on the current file |
+| `abap2UI5: Install Render Gate` | Downloads the render-gate checker and Chromium into the extension's storage |
 | `abap2UI5: Set Launch URL` | Sets (or changes) the launch URL template |
 | `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
 | `abap2UI5: Clear Stored SAP Credentials` | Removes user and password from the SecretStorage |

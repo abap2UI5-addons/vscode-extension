@@ -69,6 +69,10 @@
         "command": "abap2ui5.checkViews",
         "title": "abap2UI5: Check Views (Static)",
         "icon": "$(checklist)"
+      },
+      {
+        "command": "abap2ui5.installRenderGate",
+        "title": "abap2UI5: Install Render Gate"
       }
     ],
     "mcpServerDefinitionProviders": [
@@ -191,7 +195,7 @@
         "abap2ui5.viewCheck.render": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Also run the render gate: the reconstructed view is loaded with a real `XMLView.create` in headless Chromium. Unlike the bundled property gate this needs the external ai-view-check CLI (see `#abap2ui5.viewCheck.command#`) with `npm ci` and `npx playwright install chromium` done once in its checkout."
+          "markdownDescription": "Also run the render gate: the reconstructed view is loaded with a real `XMLView.create` in headless Chromium. Unlike the bundled property gate this needs the external checker - install it once with *\"abap2UI5: Install Render Gate\"* (downloads the checker bundle and Chromium, runs with VS Code's own runtime), or provide your own via `#abap2ui5.viewCheck.command#` / `#abap2ui5.mcp.reposRoot#`."
         },
         "abap2ui5.viewCheck.allow": {
           "type": "array",
@@ -239,6 +243,7 @@
     "@types/vscode": "^1.101.0",
     "@vscode/vsce": "^2.24.0",
     "esbuild": "^0.20.0",
+    "tar": "^7.5.22",
     "typescript": "^5.3.0"
   }
 }

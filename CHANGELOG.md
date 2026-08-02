@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0
+
+- **Self-installing render gate.** *"abap2UI5: Install Render Gate"*
+  downloads the self-contained checker bundle (published by
+  ai-view-check's CI) and Chromium into the extension's storage and runs
+  both with VS Code's own runtime - the render gate no longer needs
+  node, npm or any PATH setup on the machine. The command is also
+  offered directly from the warning when the gate is enabled but
+  missing, and installing enables `abap2ui5.viewCheck.render`.
+- **Fix: no more "view check passed" on files that only quote builder
+  code** (e.g. a log file embedding class source). Checkability now
+  requires an ABAP source actually calling `z2ui5_cl_ai_xml=>factory`
+  (or a `*.view.xml`), and when nothing can be reconstructed the check
+  says so instead of claiming a pass.
+
 ## 0.10.0
 
 - **Static view checks in the editor.** Saving an ABAP class that builds

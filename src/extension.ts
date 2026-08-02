@@ -4,6 +4,7 @@ import { URL } from "url";
 import { AdtClassState, AdtStatusError, SapProxy } from "./proxy";
 import { createNonce, previewHtml, shortUrl, welcomeHtml } from "./webview";
 import { registerMcp } from "./mcp";
+import { registerRenderGate } from "./rendergate";
 import { registerViewCheck } from "./viewcheck";
 
 const CONFIG_SECTION = "abap2ui5";
@@ -856,6 +857,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   registerViewCheck(context, log);
+  registerRenderGate(context, log);
   registerMcp(context, log);
 }
 

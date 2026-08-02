@@ -10,6 +10,7 @@ import {
   parseXml,
   PropertyFinding,
 } from "@abap2ui5/view-check/properties";
+import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
 
 /*
  * Static view validation through ai-view-check
@@ -46,6 +47,10 @@ let spawnFailed = false;
 let running = false;
 
 let snapshotCache: unknown;
+
+/** Set by registerViewCheck - checkerCommand needs the extension's global
+ *  storage to find a self-installed render gate. */
+let extContext: vscode.ExtensionContext | undefined;
 
 function config() {
   return vscode.workspace.getConfiguration(CONFIG_SECTION);
@@ -155,23 +160,50 @@ function toDiagnostics(
 // External render gate (optional)
 // ---------------------------------------------------------------------------
 
+interface CheckerCommand {
+  cmd: string;
+  args: string[];
+  env: Record<string, string>;
+  /** true when there is a real local installation to run - false means the
+   *  npx fallback, which needs npm on the machine */
+  installed: boolean;
+}
+
 /** The command used to run the external checker CLI for the render gate. An
- *  explicit setting wins; otherwise a local `ai-view-check` checkout next to
- *  the configured repos root is preferred (runs with VS Code's own Node.js),
- *  falling back to npx fetching the source from GitHub. */
-function checkerCommand(): string[] {
+ *  explicit setting wins; then a gate installed via "Install Render Gate";
+ *  then a local `ai-view-check` checkout under the repos root (both run
+ *  with VS Code's own Node.js); npx fetching from GitHub is the last
+ *  resort. */
+function checkerCommand(): CheckerCommand {
   const explicit = config().get<string>("viewCheck.command", "").trim();
   if (explicit) {
-    return explicit.split(/\s+/);
+    const [cmd, ...args] = explicit.split(/\s+/);
+    return { cmd, args, env: {}, installed: true };
+  }
+  if (extContext) {
+    const cli = renderGateCli(extContext);
+    if (cli) {
+      return {
+        cmd: "node",
+        args: [cli],
+        env: { PLAYWRIGHT_BROWSERS_PATH: renderGateBrowsers(extContext) },
+        installed: true,
+      };
+    }
   }
   const root = config().get<string>("mcp.reposRoot", "").trim();
   if (root) {
     const cli = path.join(root, "ai-view-check", "cli.mjs");
     if (fs.existsSync(cli)) {
-      return ["node", cli];
+      return { cmd: "node", args: [cli], env: {}, installed: true };
     }
   }
-  return ["npx", "--yes", "github:abap2UI5/ai-view-check"];
+  return {
+    cmd: "npx",
+    args: ["--yes", "github:abap2UI5/ai-view-check"],
+    env: {},
+    installed: false,
+  };
 }
 
 /** The extension host often runs with a minimal PATH (a GUI-launched VS Code
@@ -212,11 +244,11 @@ function runRenderGate(
   const scratch = scratchFileFor(doc, scratchDir);
   fs.writeFileSync(scratch, doc.getText());
 
-  const [cmd, ...rest] = checkerCommand();
-  const args = [...rest, scratch, "--json", "--advisory", "--no-properties"];
+  const checker = checkerCommand();
+  const args = [...checker.args, scratch, "--json", "--advisory", "--no-properties"];
   const cwd =
     vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? os.homedir();
-  log(`view-check: render gate - ${cmd} ${args.join(" ")}`);
+  log(`view-check: render gate - ${checker.cmd} ${args.join(" ")}`);
 
   return new Promise((resolve) => {
     const done = (result: RenderResult | undefined) => {
@@ -224,16 +256,16 @@ function runRenderGate(
       resolve(result);
     };
     const child =
-      cmd === "node"
+      checker.cmd === "node"
         ? // run with the Node.js inside VS Code itself - works without any
           // node installation on the PATH
           spawn(process.execPath, args, {
             cwd,
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", ...checker.env },
           })
-        : spawn(cmd, args, {
+        : spawn(checker.cmd, args, {
             cwd,
-            env: spawnEnv(),
+            env: { ...spawnEnv(), ...checker.env },
             shell: process.platform === "win32",
           });
     let stdout = "";
@@ -244,13 +276,21 @@ function runRenderGate(
       log(`view-check: render gate failed to start - ${String(err)}`);
       if (!spawnFailed) {
         spawnFailed = true;
-        vscode.window.showWarningMessage(
-          `abap2UI5: the render gate needs the ai-view-check CLI, and ${cmd} ` +
-            "was not found. Clone https://github.com/abap2UI5/ai-view-check, " +
-            "run `npm ci` and `npx playwright install chromium` in it, and " +
-            "point abap2ui5.mcp.reposRoot at its parent folder. The property " +
-            "gate keeps working without it."
-        );
+        void vscode.window
+          .showWarningMessage(
+            "abap2UI5: the render gate is enabled but its checker could not " +
+              `be started (${checker.cmd} not found). Install it once - ` +
+              "everything runs with VS Code's own runtime. The property " +
+              "gate keeps working either way.",
+            "Install render gate"
+          )
+          .then(async (pick) => {
+            if (pick === "Install render gate" && extContext) {
+              if (await installRenderGate(extContext, log)) {
+                spawnFailed = false;
+              }
+            }
+          });
       }
       done(undefined);
     });
@@ -389,6 +429,7 @@ export function registerViewCheck(
   context: vscode.ExtensionContext,
   log: (m: string) => void
 ): void {
+  extContext = context;
   const diagnostics =
     vscode.languages.createDiagnosticCollection("abap2ui5-view-check");
 
