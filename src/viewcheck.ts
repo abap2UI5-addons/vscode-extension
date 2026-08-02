@@ -5,6 +5,7 @@ import * as path from "path";
 import { spawn } from "child_process";
 import { checkAbapRules } from "@abap2ui5/linter/abap-rules";
 import { prepareAbap } from "@abap2ui5/linter/reconstruct";
+import { prepareTypedAbap, usesTypedBuilder } from "@abap2ui5/linter/xml-view";
 import {
   checkNodes,
   loadSnapshot,
@@ -32,9 +33,9 @@ import { installRenderGate, renderGateBrowsers, renderGateCli } from "./renderga
 const CONFIG_SECTION = "abap2ui5";
 const DIAG_SOURCE = "abap2UI5-linter";
 
-/** ABAP classes are only checkable when they build views with the generic
- *  builder - the same signal the checker itself uses. */
-const FACTORY_RE = /z2ui5_cl_ai_xml=>factory/i;
+/** ABAP classes are only checkable when they build a view with one of the
+ *  two builders - the same signal the checker itself uses. */
+const FACTORY_RE = /z2ui5_cl_(?:ai_xml|xml_view)=>factory/i;
 
 const VIEW_XML_RE = /\.(view|fragment)\.xml$/i;
 
@@ -398,7 +399,11 @@ async function checkDocument(
         ...checkNodes(parseXml(text), { data: snapshot(), minUi5, allow, distribution })
       );
     } else {
-      const prep = prepareAbap(text);
+      // the typed builder (z2ui5_cl_xml_view) needs its method -> control
+      // map, which the build copies next to this bundle
+      const prep = usesTypedBuilder(text)
+        ? prepareTypedAbap(text, { map: path.join(__dirname, "xml-view.json") })
+        : prepareAbap(text);
       if (!prep.usesBuilder) {
         diagnostics.delete(doc.uri);
         log(
