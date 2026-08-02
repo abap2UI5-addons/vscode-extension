@@ -5,10 +5,11 @@
 - **Static view checks in the editor.** Saving an ABAP class that builds
   views with `z2ui5_cl_ai_xml` (or a raw `*.view.xml` / `*.fragment.xml`)
   now runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
-  gates and shows the findings in the Problems panel: controls or
-  properties newer than your UI5 floor (default 1.71), deprecated
-  controls, and - optionally, `abap2ui5.viewCheck.render` - real render
-  errors from a headless `XMLView.create`. A typo'd property fails in the
+  gates and shows the findings in the Problems panel: controls that do
+  not exist in UI5 at all (`sap.m.Shell2` - a typo, shown as an error),
+  controls or properties newer than your UI5 floor (default 1.71),
+  deprecated controls, and - optionally, `abap2ui5.viewCheck.render` -
+  real render errors from a headless `XMLView.create`. A typo'd property fails in the
   editor instead of at runtime in the browser. On demand:
   *"abap2UI5: Check Views (Static)"*. Configure the floor, accepted
   deviations and the checker command under `abap2ui5.viewCheck.*`; by
