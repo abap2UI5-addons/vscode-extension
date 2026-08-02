@@ -113,17 +113,44 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 }
 
 function findingMessage(f: PropertyFinding): string {
-  if (f.type === "unknown-control") {
-    return `${f.control} does not exist in UI5 - typo?`;
+  switch (f.type) {
+    case "unknown-control":
+      return `${f.control} does not exist in UI5 - typo?`;
+    case "unknown-property":
+      return `${f.control} has no property/event/association ${f.member} - typo?`;
+    case "unknown-aggregation":
+      return `${f.control} has no aggregation ${f.member} - typo?`;
+    case "invalid-property-value":
+      return (
+        `${f.member}="${f.value}" is not valid for ${f.control} - ` +
+        (f.allowed ? `allowed: ${f.allowed.join(", ")}` : `expected ${f.memberType}`)
+      );
+    case "invalid-aggregation-child":
+      return `${f.control} is not allowed in ${f.parentControl} ${f.member} (expects ${f.expected})`;
+    case "too-many-children":
+      return `${f.control} ${f.member} takes one child, ${f.count} given`;
+    case "excess-shut":
+      return "one shut( ) more than the tree is deep - this asserts at runtime";
+    case "control-too-new":
+      return `${f.control} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
+    case "control-deprecated":
+      return `${f.control} is deprecated${f.deprecated ? ` (${String(f.deprecated).slice(0, 120)})` : ""}`;
+    default:
+      return `${f.control} ${f.member} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
   }
-  if (f.type === "control-too-new") {
-    return `${f.control} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
-  }
-  if (f.type === "control-deprecated") {
-    return `${f.control} is deprecated${f.deprecated ? ` (${String(f.deprecated).slice(0, 120)})` : ""}`;
-  }
-  return `${f.control} ${f.member} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
 }
+
+/** Defects that break the app (or dump) are errors; version-floor and
+ *  deprecation findings are warnings. */
+const ERROR_TYPES = new Set([
+  "unknown-control",
+  "unknown-property",
+  "unknown-aggregation",
+  "invalid-property-value",
+  "invalid-aggregation-child",
+  "too-many-children",
+  "excess-shut",
+]);
 
 function toDiagnostics(
   doc: vscode.TextDocument,
@@ -136,7 +163,7 @@ function toDiagnostics(
     const d = new vscode.Diagnostic(
       findingRange(doc, f.member || local),
       findingMessage(f),
-      f.type === "unknown-control"
+      ERROR_TYPES.has(f.type)
         ? vscode.DiagnosticSeverity.Error
         : vscode.DiagnosticSeverity.Warning
     );

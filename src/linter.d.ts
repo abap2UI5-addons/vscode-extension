@@ -33,6 +33,15 @@ declare module "@abap2ui5/linter/properties" {
     since?: string;
     minUi5?: string;
     deprecated?: string | boolean;
+    /** invalid-property-value */
+    value?: string;
+    allowed?: string[];
+    memberType?: string;
+    /** invalid-aggregation-child */
+    parentControl?: string;
+    expected?: string;
+    /** too-many-children */
+    count?: number;
   }
 
   export function loadSnapshot(file?: string): unknown;
