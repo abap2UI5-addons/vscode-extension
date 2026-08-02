@@ -97,6 +97,39 @@ empty release body (the workflow falls back to a placeholder).
 - **Never log or persist credentials** anywhere but `context.secrets`. The
   proxy holds them in memory only, as a prepared header.
 
+## Toolchain & supply chain
+
+Facts an agent cannot see from the code but will trip over:
+
+- **The linter is a git devDependency pinned to a COMMIT in the lockfile.**
+  `"@abap2ui5/linter": "github:abap2UI5/abap2UI5-linter"` resolves in
+  `package-lock.json` to a fixed SHA (as a `git+ssh://` URL — `npm ci` can
+  fail in HTTPS-only/tokenless environments, and it pulls the linter's full
+  tree: all `@openui5/*` packages plus playwright, hundreds of MB).
+  Consequences: a new linter finding type is **invisible in the editor until
+  the lock is bumped** — bump deliberately with
+  `npm install @abap2ui5/linter@github:abap2UI5/abap2UI5-linter` and commit
+  the lockfile (this has been done by hand before; it is the release lever).
+- **Node versions are mismatched by design debt**: CI pins Node 20
+  (`ci.yml`/`release.yml`) while the linter declares `engines >= 22`. npm
+  only warns today; if an install starts failing on engines, this is why.
+- **`esbuild.js` carries two load-bearing hacks** — do not "clean them up":
+  the `import.meta.url` define + `scripts/import-meta-url-shim.mjs` inject
+  (ESM linter modules bundled into CJS), and `copySnapshot()`, which copies
+  the linter's `data/properties.json` into `dist/` at build time. If
+  `dist/properties.json` is missing, the property gate runs with **no
+  metadata and finds nothing** — silently.
+- **The render gate is downloaded at runtime**, not bundled:
+  `src/rendergate.ts` fetches `view-check-bundle.tgz` from the linter's
+  rolling prerelease tag `render-gate-bundle` (published by the linter's
+  `bundle.yml` on every merge to its main). What installed extensions
+  execute for the render gate therefore changes without any release of this
+  extension — when debugging a render-gate report, check what the bundle
+  currently contains, not only the pinned package.
+- The MCP registration (`src/mcp.ts`) and the view checker still resolve the
+  **pre-rename alias `ai-view-check`** alongside `abap2UI5-linter` (mirrored
+  in ai-mcp's `lib/repos.mjs`) — drop it only in a coordinated change.
+
 ## Related repositories
 
 | Repository | Purpose |
@@ -104,3 +137,5 @@ empty release body (the workflow falls back to a placeholder).
 | [abap2UI5](https://github.com/abap2UI5/abap2UI5) | Core framework |
 | [samples](https://github.com/abap2UI5/samples) | Sample applications |
 | [ai-demokit](https://github.com/abap2UI5/ai-demokit) | Ported demo-kit samples — where this extension used to live, until 0.6.0 |
+| [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter) | The view checker behind `src/viewcheck.ts` (SHA-pinned package) and `src/rendergate.ts` (runtime bundle download) |
+| [ai-mcp](https://github.com/abap2UI5/ai-mcp) | The MCP server `src/mcp.ts` registers for MCP clients in the window |
