@@ -15,7 +15,11 @@ declare module "@abap2ui5/linter/reconstruct" {
     usesBuilder: boolean;
     nodes: ViewNode[];
     docs: string[];
+    /** What a literal seed actually sets - the model the renderer gets. */
     model: Record<string, unknown>;
+    /** Every declared field of every declared structure - what the property
+     *  gate judges binding paths against. */
+    modelShape: Record<string, unknown>;
     notes: string[];
     helperTokens: number;
   }
@@ -68,6 +72,9 @@ declare module "@abap2ui5/linter/properties" {
       minUi5?: string;
       allow?: string[];
       distribution?: string;
+      /** Without these two the binding-path rules cannot run at all. */
+      model?: Record<string, unknown> | null;
+      shape?: Record<string, unknown> | null;
     }
   ): PropertyFinding[];
 }

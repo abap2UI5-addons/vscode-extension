@@ -430,7 +430,19 @@ async function checkDocument(
         return;
       }
       for (const node of prep.nodes) {
-        findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow, distribution }));
+        // the model derived from the class is what makes the binding-path
+        // rules possible - a path nothing in the model has stays silently
+        // empty at runtime, and without passing it those rules never run
+        findings.push(
+          ...checkNodes(node, {
+            data: snapshot(),
+            minUi5,
+            allow,
+            distribution,
+            model: prep.model,
+            shape: prep.modelShape,
+          })
+        );
       }
       // rules that need the class itself, not just the view tree
       findings.push(...checkAbapRules(text));
