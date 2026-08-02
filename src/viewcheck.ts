@@ -11,6 +11,7 @@ import {
   parseXml,
   PropertyFinding,
 } from "@abap2ui5/linter/properties";
+import { annotate, describe, severityOf } from "@abap2ui5/linter/findings";
 import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
 
 /*
@@ -111,10 +112,33 @@ function pickDocument(): vscode.TextDocument | undefined {
   return active;
 }
 
-/** Best-effort mapping of a finding to a source position: the member (or the
- *  control's local name) appears literally in the checked file - in raw XML
- *  and equally in the string literals of a builder class. */
-function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
+/** What to underline: the member name, the control's local name, or - for
+ *  the findings that are about a value rather than a member - that value. */
+function needleOf(f: PropertyFinding): string {
+  if (f.type === "unknown-binding-path" || f.type === "event-without-handler") {
+    return String(f.value ?? "").replace(/^\//, "");
+  }
+  return f.member || (f.control ?? "").split(".").pop() || "";
+}
+
+/** The linter records where each finding came from, so the diagnostic goes
+ *  exactly there: the recorded line, and on it the first occurrence of the
+ *  name at or after the recorded column - the a( ) call carries the name a
+ *  few characters further right than the token the gate matched. Findings
+ *  the linter could not place (a view part inlined from a helper method)
+ *  keep the old best-effort search: the first textual match in the file. */
+function findingRange(doc: vscode.TextDocument, f: PropertyFinding): vscode.Range {
+  const needle = needleOf(f);
+  if (typeof f.line === "number" && f.line >= 1 && f.line <= doc.lineCount) {
+    const lineNo = f.line - 1;
+    const line = doc.lineAt(lineNo);
+    const col = Math.max(0, Math.min((f.column ?? 1) - 1, line.text.length));
+    const ix = needle ? line.text.indexOf(needle, col) : -1;
+    if (ix >= 0) {
+      return new vscode.Range(lineNo, ix, lineNo, ix + needle.length);
+    }
+    return new vscode.Range(new vscode.Position(lineNo, col), line.range.end);
+  }
   if (needle) {
     const text = doc.getText();
     const ix = text.search(
@@ -128,101 +152,16 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
   return doc.lineAt(0).range;
 }
 
-function findingMessage(f: PropertyFinding): string {
-  switch (f.type) {
-    case "view-never-displayed":
-      return "a view is built but never displayed - client->view_display( ) is missing";
-    case "missing-required-aggregation":
-      return `${f.control} has data but no ${f.member} - it renders empty`;
-    case "collection-bound-to-property":
-      return `${f.member} is a scalar property but {${f.value}} is a table/structure`;
-    case "member-deprecated":
-      return (
-        `${f.control} ${f.member} is deprecated` +
-        (f.deprecated ? ` (${String((f.deprecated as { text?: string }).text ?? f.deprecated).slice(0, 120)})` : "")
-      );
-    case "duplicate-aggregation":
-      return `${f.control} opens ${f.member} twice - the second tag replaces the first`;
-    case "unconverted-abap-boolean":
-      return (
-        `${f.member}: the ABAP boolean ${f.value} reaches the view as 'X'/' ' - ` +
-        "wrap it in z2ui5_cl_ai_xml=>as_bool( )"
-      );
-    case "unknown-binding-path":
-      return `the model has no path {${f.value}} - this stays silently empty`;
-    case "binding-for-event":
-      return `${f.member} is an event but carries a binding - use client->_event( )`;
-    case "event-for-property":
-      return `${f.member} is a property but carries an event handler - use client->_bind( )`;
-    case "obsolete-binder":
-      return `client->${f.member}( ) is obsolete - use client->_bind( )`;
-    case "binding-to-local":
-      return (
-        `${f.member} is a local variable - its value is lost after the ` +
-        "roundtrip, bind an instance attribute"
-      );
-    case "event-without-handler":
-      return (
-        `event ${f.value} is raised but never handled - a dead control, ` +
-        "unless the roundtrip alone is intended"
-      );
-    case "duplicate-id":
-      return `id="${f.value}" is used twice - duplicate ID error at runtime`;
-    case "undeclared-namespace":
-      return `namespace prefix '${f.member}' is used but never declared (xmlns:${f.member})`;
-    case "invalid-expression-binding":
-      return `unbalanced braces or parens in the expression binding`;
-    case "missing-accessibility":
-      return `${f.control} has no ${f.member} - not usable with a screen reader`;
-    case "sapui5-only-control":
-      return `${f.control} needs SAPUI5 - ${f.library} is not part of OpenUI5`;
-    case "unknown-control":
-      return `${f.control} does not exist in UI5 - typo?`;
-    case "unknown-property":
-      return `${f.control} has no property/event/association ${f.member} - typo?`;
-    case "unknown-aggregation":
-      return `${f.control} has no aggregation ${f.member} - typo?`;
-    case "invalid-property-value":
-      return (
-        `${f.member}="${f.value}" is not valid for ${f.control} - ` +
-        (f.allowed ? `allowed: ${f.allowed.join(", ")}` : `expected ${f.memberType}`)
-      );
-    case "invalid-aggregation-child":
-      return `${f.control} is not allowed in ${f.parentControl} ${f.member} (expects ${f.expected})`;
-    case "too-many-children":
-      return `${f.control} ${f.member} takes one child, ${f.count} given`;
-    case "excess-shut":
-      return "one shut( ) more than the tree is deep - this asserts at runtime";
-    case "control-too-new":
-      return `${f.control} is @since ${f.since} - newer than the UI5 ${f.minUi5} you target`;
-    case "control-deprecated":
-      return `${f.control} is deprecated${f.deprecated ? ` (${String(f.deprecated).slice(0, 120)})` : ""}`;
-    default:
-      return `${f.control} ${f.member} is @since ${f.since} - newer than the UI5 ${f.minUi5} you target`;
-  }
-}
-
-/** Defects that break the app (or dump) are errors; version-floor and
- *  deprecation findings are warnings. */
-const ERROR_TYPES = new Set([
-  "sapui5-only-control",
-  "unknown-control",
-  "unknown-property",
-  "unknown-aggregation",
-  "invalid-property-value",
-  "invalid-aggregation-child",
-  "too-many-children",
-  "excess-shut",
-  "duplicate-id",
-  "undeclared-namespace",
-  "invalid-expression-binding",
-  "binding-for-event",
-  "event-for-property",
-  "unconverted-abap-boolean",
-  "duplicate-aggregation",
-  "view-never-displayed",
-  "collection-bound-to-property",
-]);
+/* The linter owns the severity of every finding type and the wording that
+ * goes with it (@abap2ui5/linter/findings) - both used to be kept a second
+ * time here, which is how the two drifted apart. `hint` becomes
+ * Information rather than DiagnosticSeverity.Hint: Hint diagnostics stay
+ * out of the Problems panel, and a finding nobody can see is not a hint. */
+const DIAGNOSTIC_SEVERITY = {
+  error: vscode.DiagnosticSeverity.Error,
+  warning: vscode.DiagnosticSeverity.Warning,
+  hint: vscode.DiagnosticSeverity.Information,
+} as const;
 
 function toDiagnostics(
   doc: vscode.TextDocument,
@@ -231,17 +170,10 @@ function toDiagnostics(
 ): vscode.Diagnostic[] {
   const diags: vscode.Diagnostic[] = [];
   for (const f of findings) {
-    const local = (f.control ?? "").split(".").pop() ?? "";
-    const needle =
-      f.type === "unknown-binding-path" || f.type === "event-without-handler"
-        ? String(f.value ?? "").replace(/^\//, "")
-        : f.member || local;
     const d = new vscode.Diagnostic(
-      findingRange(doc, needle),
-      findingMessage(f),
-      ERROR_TYPES.has(f.type)
-        ? vscode.DiagnosticSeverity.Error
-        : vscode.DiagnosticSeverity.Warning
+      findingRange(doc, f),
+      f.message ?? describe(f),
+      DIAGNOSTIC_SEVERITY[f.severity ?? severityOf(f)]
     );
     d.source = DIAG_SOURCE;
     d.code = f.member ? `${f.control}.${f.member}` : f.control;
@@ -508,6 +440,9 @@ async function checkDocument(
           " (render gate skipped - view built in helper methods)";
       }
     }
+
+    // severity, wording and the line/column behind each recorded offset
+    annotate(findings, text);
 
     // render gate - optional, external
     let renderErrors: string[] = [];
