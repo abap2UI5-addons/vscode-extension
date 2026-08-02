@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { spawn } from "child_process";
 
@@ -103,6 +104,9 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 }
 
 function findingMessage(f: Finding): string {
+  if (f.type === "unknown-control") {
+    return `${f.control} does not exist in UI5 - typo?`;
+  }
   if (f.type === "control-too-new") {
     return `${f.control} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
   }
@@ -122,7 +126,9 @@ function toDiagnostics(
     const d = new vscode.Diagnostic(
       findingRange(doc, f.member || local),
       findingMessage(f),
-      vscode.DiagnosticSeverity.Warning
+      f.type === "unknown-control"
+        ? vscode.DiagnosticSeverity.Error
+        : vscode.DiagnosticSeverity.Warning
     );
     d.source = DIAG_SOURCE;
     d.code = f.member ? `${f.control}.${f.member}` : f.control;
@@ -140,6 +146,22 @@ function toDiagnostics(
   return diags;
 }
 
+/** The extension host often runs with a minimal PATH (a GUI-launched VS Code
+ *  on macOS misses /usr/local/bin and the Homebrew prefix) - the usual reason
+ *  spawning npx fails. */
+function spawnEnv(): NodeJS.ProcessEnv {
+  if (process.platform === "win32") {
+    return process.env;
+  }
+  const parts = (process.env.PATH ?? "").split(path.delimiter);
+  for (const p of ["/usr/local/bin", "/opt/homebrew/bin"]) {
+    if (!parts.includes(p)) {
+      parts.push(p);
+    }
+  }
+  return { ...process.env, PATH: parts.join(path.delimiter) };
+}
+
 function runChecker(
   args: string[],
   cwd: string,
@@ -149,7 +171,19 @@ function runChecker(
   const full = [...rest, ...args];
   log(`view-check: ${cmd} ${full.join(" ")}`);
   return new Promise((resolve) => {
-    const child = spawn(cmd, full, { cwd, shell: process.platform === "win32" });
+    const child =
+      cmd === "node"
+        ? // run with the Node.js inside VS Code itself - works without any
+          // node installation on the PATH
+          spawn(process.execPath, full, {
+            cwd,
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+          })
+        : spawn(cmd, full, {
+            cwd,
+            env: spawnEnv(),
+            shell: process.platform === "win32",
+          });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (c) => (stdout += String(c)));
@@ -159,9 +193,11 @@ function runChecker(
       if (!spawnFailed) {
         spawnFailed = true;
         vscode.window.showWarningMessage(
-          `abap2UI5: could not start the view checker (${cmd}). ` +
-            "Set abap2ui5.viewCheck.command to a working command - " +
-            "see the abap2UI5 output channel for details."
+          `abap2UI5: could not start the view checker (${cmd} was not found). ` +
+            "Easiest fix: clone https://github.com/abap2UI5/ai-view-check, run " +
+            "`npm ci` in it, and point abap2ui5.mcp.reposRoot at its parent " +
+            "folder - it then runs with VS Code's own Node.js, no PATH needed. " +
+            "Details in the abap2UI5 output channel."
         );
       }
       resolve(undefined);
@@ -184,6 +220,21 @@ function runChecker(
   });
 }
 
+/** The checker is a CLI working on files, but the document may be unsaved or
+ *  not a file on disk at all (the `adt` scheme of the ABAP remote
+ *  filesystem) - so the buffer is written to a scratch file first. The name
+ *  matters: the checker only looks at `*.clas.abap` and view/fragment XML. */
+function scratchFileFor(doc: vscode.TextDocument, dir: string): string {
+  const base = path.basename(doc.fileName);
+  if (VIEW_XML_RE.test(base) || base.endsWith(".clas.abap")) {
+    return path.join(dir, base);
+  }
+  return path.join(
+    dir,
+    doc.languageId === "abap" ? `${path.parse(base).name}.clas.abap` : base
+  );
+}
+
 async function checkDocument(
   doc: vscode.TextDocument,
   diagnostics: vscode.DiagnosticCollection,
@@ -194,9 +245,12 @@ async function checkDocument(
     return;
   }
   running = true;
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "abap2ui5-viewcheck-"));
   try {
+    const scratch = scratchFileFor(doc, scratchDir);
+    fs.writeFileSync(scratch, doc.getText());
     const cfg = config();
-    const args = [doc.fileName, "--json", "--advisory"];
+    const args = [scratch, "--json", "--advisory"];
     args.push("--min-ui5", cfg.get<string>("viewCheck.minUi5", "1.71"));
     if (!cfg.get<boolean>("viewCheck.render", false)) {
       args.push("--no-render");
@@ -206,7 +260,7 @@ async function checkDocument(
     }
     const cwd =
       vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ??
-      path.dirname(doc.fileName);
+      os.homedir();
     const report = await runChecker(args, cwd, log);
     if (!report) {
       return;
@@ -214,6 +268,16 @@ async function checkDocument(
     const result = report.results[0];
     if (!result) {
       diagnostics.delete(doc.uri);
+      log(
+        `view-check: ${path.basename(doc.fileName)} - nothing checkable ` +
+          "(the checker looks for z2ui5_cl_ai_xml=>factory in *.clas.abap)"
+      );
+      if (announce) {
+        vscode.window.showInformationMessage(
+          `abap2UI5: nothing to check in ${path.basename(doc.fileName)} - ` +
+            "the checker looks for views built with z2ui5_cl_ai_xml=>factory."
+        );
+      }
       return;
     }
     const diags = toDiagnostics(doc, result);
@@ -239,6 +303,7 @@ async function checkDocument(
     }
   } finally {
     running = false;
+    fs.rmSync(scratchDir, { recursive: true, force: true });
   }
 }
 
@@ -259,9 +324,6 @@ export function registerViewCheck(
             "z2ui5_cl_ai_xml (or a *.view.xml file) to check it."
         );
         return;
-      }
-      if (doc.isDirty) {
-        await doc.save();
       }
       await checkDocument(doc, diagnostics, log, true);
     }),
