@@ -9,6 +9,7 @@ import {
   loadSnapshot,
   parseXml,
   PropertyFinding,
+  snapshotVersion,
 } from "@abap2ui5/linter/properties";
 import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
 
@@ -18,8 +19,9 @@ import { installRenderGate, renderGateBrowsers, renderGateCli } from "./renderga
  *
  * The property gate runs INSIDE the extension: the checker library and its
  * UI5 metadata snapshot are bundled, so unknown controls (typos), controls
- * or properties newer than the configured UI5 floor and deprecations show
- * up as diagnostics with zero setup - no node, npx or network involved.
+ * or properties introduced after the configured target UI5 version and
+ * deprecations already in effect there show up as diagnostics with zero
+ * setup - no node, npx or network involved.
  *
  * Only the optional render gate (a real XMLView.create in headless
  * Chromium) needs the external linter CLI, because it serves the
@@ -47,6 +49,9 @@ let spawnFailed = false;
 let running = false;
 
 let snapshotCache: unknown;
+
+/** The target/metadata versions are logged once per session. */
+let versionLogged = false;
 
 /** Set by registerViewCheck - checkerCommand needs the extension's global
  *  storage to find a self-installed render gate. */
@@ -132,11 +137,11 @@ function findingMessage(f: PropertyFinding): string {
     case "excess-shut":
       return "one shut( ) more than the tree is deep - this asserts at runtime";
     case "control-too-new":
-      return `${f.control} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
+      return `${f.control} is @since ${f.since} - newer than the UI5 ${f.minUi5} you target`;
     case "control-deprecated":
       return `${f.control} is deprecated${f.deprecated ? ` (${String(f.deprecated).slice(0, 120)})` : ""}`;
     default:
-      return `${f.control} ${f.member} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
+      return `${f.control} ${f.member} is @since ${f.since} - newer than the UI5 ${f.minUi5} you target`;
   }
 }
 
@@ -368,6 +373,11 @@ async function checkDocument(
   try {
     const cfg = config();
     const minUi5 = cfg.get<string>("viewCheck.minUi5", "1.71");
+    if (!versionLogged) {
+      versionLogged = true;
+      const snap = snapshotVersion(path.join(__dirname, "properties.json"));
+      log(`view-check: target UI5 ${minUi5}, metadata from ${snap ?? "unknown"}`);
+    }
     const allow = cfg.get<string[]>("viewCheck.allow", []);
     const text = doc.getText();
     const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);

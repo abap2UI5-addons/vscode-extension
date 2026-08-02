@@ -190,7 +190,7 @@
         "abap2ui5.viewCheck.minUi5": {
           "type": "string",
           "default": "1.71",
-          "markdownDescription": "UI5 floor for the property gate: every control and property written in a view must exist (and not be deprecated) in this UI5 version."
+          "markdownDescription": "The UI5 version to check against - **the version your system runs**. A control or property introduced after it is reported (it would not exist on your system), and a deprecation is only reported once it is in effect at that version. The metadata itself comes from the bundled snapshot; see the abap2UI5 output channel for the version it was generated from."
         },
         "abap2ui5.viewCheck.render": {
           "type": "boolean",
