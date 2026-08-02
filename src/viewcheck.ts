@@ -130,6 +130,13 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 
 function findingMessage(f: PropertyFinding): string {
   switch (f.type) {
+    case "member-deprecated":
+      return (
+        `${f.control} ${f.member} is deprecated` +
+        (f.deprecated ? ` (${String((f.deprecated as { text?: string }).text ?? f.deprecated).slice(0, 120)})` : "")
+      );
+    case "duplicate-aggregation":
+      return `${f.control} opens ${f.member} twice - the second tag replaces the first`;
     case "unconverted-abap-boolean":
       return (
         `${f.member}: the ABAP boolean ${f.value} reaches the view as 'X'/' ' - ` +
@@ -206,6 +213,7 @@ const ERROR_TYPES = new Set([
   "binding-for-event",
   "event-for-property",
   "unconverted-abap-boolean",
+  "duplicate-aggregation",
 ]);
 
 function toDiagnostics(

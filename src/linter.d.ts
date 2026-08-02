@@ -32,7 +32,7 @@ declare module "@abap2ui5/linter/properties" {
     member?: string;
     since?: string;
     minUi5?: string;
-    deprecated?: string | boolean;
+    deprecated?: string | boolean | { since?: string | null; text?: string };
     /** invalid-property-value */
     value?: string;
     allowed?: string[];

@@ -13,6 +13,11 @@
   written straight into the view - it arrives as `'X'`/`' '`, and since
   UI5 reads any non-empty string as true, `visible = abap_false` makes
   the control *visible*. Wrap it in `z2ui5_cl_ai_xml=>as_bool( )`.
+- **Deprecated properties and duplicate aggregations.** Deprecation was
+  only checked on control level; it now applies per property too, with
+  the same target-version rule. And opening the same aggregation twice
+  under one control - where the second tag silently replaces the first -
+  is reported as an error.
 - **More view checks:** a duplicate `id` (a runtime error), a namespace
   prefix used but never declared, unbalanced braces in `{= … }`
   expression bindings, and two unambiguous accessibility defects
