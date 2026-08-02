@@ -5,23 +5,21 @@ const path = require("path");
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 
-/** The data the bundled view checker reads at runtime ships next to the
- *  bundle: the UI5 metadata snapshot for the property gate, and the typed
- *  builder's method -> control mapping for the reconstruction. */
-function copyData() {
-  const data = path.join(
+/** The UI5 metadata snapshot of the bundled view checker ships next to the
+ *  bundle - the property gate reads it at runtime. */
+function copySnapshot() {
+  const src = path.join(
     path.dirname(require.resolve("@abap2ui5/linter/properties")),
     "..",
-    "data"
+    "data",
+    "properties.json"
   );
   fs.mkdirSync("dist", { recursive: true });
-  for (const file of ["properties.json", "xml-view.json"]) {
-    fs.copyFileSync(path.join(data, file), path.join("dist", file));
-  }
+  fs.copyFileSync(src, path.join("dist", "properties.json"));
 }
 
 async function main() {
-  copyData();
+  copySnapshot();
   const ctx = await esbuild.context({
     entryPoints: ["src/extension.ts"],
     bundle: true,

@@ -14,13 +14,6 @@
   informational hints for things that are worth knowing but never wrong by
   themselves, such as an event nothing handles or an icon-only button
   without a tooltip. They no longer look like defects in the Problems panel.
-- **Views built with the typed builder are checked too.** Until now only
-  the generic `z2ui5_cl_ai_xml` builder was understood; a class written with
-  `z2ui5_cl_xml_view` - which is how most abap2UI5 apps are written - showed
-  no diagnostics at all. The control is the ABAP method there and its
-  attributes are that method's parameters, and that mapping is read from the
-  abap2UI5 sources (441 methods plus the custom controls), so it stays right
-  as the framework grows.
 - **The binding-path checks now run in the editor at all.** The property
   gate was called without the model derived from the class, and the rules
   that need it stayed silent: a `{/TYPO}` the model has no path for, and a

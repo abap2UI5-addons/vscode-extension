@@ -105,16 +105,3 @@ declare module "@abap2ui5/linter/findings" {
     source: string
   ): T[];
 }
-
-declare module "@abap2ui5/linter/xml-view" {
-  import type { PreparedAbap } from "@abap2ui5/linter/reconstruct";
-
-  /** Views built with the typed builder z2ui5_cl_xml_view - the control is
-   *  the ABAP method, its attributes are that method's parameters. */
-  export function usesTypedBuilder(source: string): boolean;
-
-  export function prepareTypedAbap(
-    source: string,
-    opts?: { map?: string }
-  ): PreparedAbap;
-}
