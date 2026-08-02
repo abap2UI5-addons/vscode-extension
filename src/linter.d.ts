@@ -1,9 +1,9 @@
 /*
- * Minimal typings for the bundled @abap2ui5/view-check library
- * (https://github.com/abap2UI5/ai-view-check) - plain .mjs upstream.
+ * Minimal typings for the bundled @abap2ui5/linter library
+ * (https://github.com/abap2UI5/abap2UI5-linter) - plain .mjs upstream.
  */
 
-declare module "@abap2ui5/view-check/reconstruct" {
+declare module "@abap2ui5/linter/reconstruct" {
   export interface ViewNode {
     name: string | null;
     ns: string | null;
@@ -23,8 +23,8 @@ declare module "@abap2ui5/view-check/reconstruct" {
   export function prepareAbap(source: string): PreparedAbap;
 }
 
-declare module "@abap2ui5/view-check/properties" {
-  import type { ViewNode } from "@abap2ui5/view-check/reconstruct";
+declare module "@abap2ui5/linter/properties" {
+  import type { ViewNode } from "@abap2ui5/linter/reconstruct";
 
   export interface PropertyFinding {
     type: string;

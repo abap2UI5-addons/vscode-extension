@@ -128,7 +128,7 @@ The key is only taken over for ABAP objects opened from a system (scheme
 
 abap2UI5 views are built as strings — a typo'd property or a control newer
 than your system's UI5 version normally fails at runtime in the browser. The
-extension runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
+extension runs the [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter)
 gates instead, in the editor:
 
 - **Property gate** — bundled with the extension, zero setup, instant:
@@ -140,11 +140,11 @@ gates instead, in the editor:
   loaded with a real `XMLView.create` in headless Chromium, so broken
   expression bindings and property-type violations fail too. Install it
   once with *"abap2UI5: Install Render Gate"*: the command downloads the
-  self-contained checker bundle (~30 MB, published by ai-view-check's CI)
+  self-contained checker bundle (~30 MB, published by abap2UI5-linter's CI)
   and Chromium into the extension's storage and runs everything with VS
   Code's own runtime — no node, npm or PATH setup on the machine.
   Alternatively point `abap2ui5.mcp.reposRoot` at a folder containing your
-  own `ai-view-check` checkout (`npm ci` +
+  own `abap2UI5-linter` checkout (`npm ci` +
   `npx playwright install chromium` done), or set
   `abap2ui5.viewCheck.command`.
 
@@ -171,7 +171,7 @@ an AI agent the full abap2UI5 development loop **without an SAP system**:
 
 The server orchestrates local checkouts of `abap2UI5` and
 [`ai-demokit`](https://github.com/abap2UI5/ai-demokit) (plus optionally
-`ai-view-check` and `ai-mcp` itself). Clone them into one folder and point
+`abap2UI5-linter` and `ai-mcp` itself). Clone them into one folder and point
 `abap2ui5.mcp.reposRoot` at it — the extension passes the matching
 `A2UI5_HOME` / `AI_DEMOKIT_HOME` / `AI_VIEW_CHECK_HOME` variables to the
 server and prefers the local `ai-mcp` checkout over downloading via npx.
@@ -186,13 +186,13 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2ui5.openMode` | `tab` | `tab`, `panel` or `external` |
 | `abap2ui5.reloadOn` | `activation` | When the preview reloads on its own: `activation`, `save` or `never` |
 | `abap2ui5.viewCheck.onSave` | `true` | Run the static view check when a checkable file is saved |
-| `abap2ui5.viewCheck.command` | – | Command running the ai-view-check CLI (empty = local checkout or npx) |
+| `abap2ui5.viewCheck.command` | – | Command running the abap2UI5-linter (formerly ai-view-check) CLI (empty = local checkout or npx) |
 | `abap2ui5.viewCheck.minUi5` | `1.71` | UI5 floor for the property gate |
 | `abap2ui5.viewCheck.render` | `false` | Also run the headless render gate |
 | `abap2ui5.viewCheck.allow` | `[]` | Accepted deviations, e.g. `sap.m.GenericTile.systemInfo` |
 | `abap2ui5.mcp.enabled` | `true` | Offer the abap2UI5 MCP server to MCP clients |
 | `abap2ui5.mcp.command` | – | Command starting the MCP server (empty = local checkout or npx) |
-| `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `ai-view-check` / `ai-mcp` checkouts |
+| `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `abap2UI5-linter` / `ai-mcp` checkouts |
 
 ## Commands
 

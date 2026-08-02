@@ -8,15 +8,15 @@ import * as tar from "tar";
 
 /*
  * Self-installing render gate: downloads the self-contained checker bundle
- * (CLI + OpenUI5 runtime + playwright, published as a rolling release by
- * ai-view-check's CI) into the extension's global storage and fetches
+ * (CLI + OpenUI5 runtime + playwright, published as a rolling release by abap2UI5-linter's CI
+ * into the extension's global storage and fetches
  * Chromium through playwright's own CLI - everything runs with VS Code's
  * bundled Node.js, so no node, npm or PATH setup is required on the
  * machine.
  */
 
 const BUNDLE_URL =
-  "https://github.com/abap2UI5/ai-view-check/releases/download/render-gate-bundle/view-check-bundle.tgz";
+  "https://github.com/abap2UI5/abap2UI5-linter/releases/download/render-gate-bundle/view-check-bundle.tgz";
 
 let installing = false;
 

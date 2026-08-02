@@ -3,18 +3,18 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { spawn } from "child_process";
-import { prepareAbap } from "@abap2ui5/view-check/reconstruct";
+import { prepareAbap } from "@abap2ui5/linter/reconstruct";
 import {
   checkNodes,
   loadSnapshot,
   parseXml,
   PropertyFinding,
-} from "@abap2ui5/view-check/properties";
+} from "@abap2ui5/linter/properties";
 import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
 
 /*
- * Static view validation through ai-view-check
- * (https://github.com/abap2UI5/ai-view-check).
+ * Static view validation through abap2UI5-linter
+ * (https://github.com/abap2UI5/abap2UI5-linter).
  *
  * The property gate runs INSIDE the extension: the checker library and its
  * UI5 metadata snapshot are bundled, so unknown controls (typos), controls
@@ -22,12 +22,12 @@ import { installRenderGate, renderGateBrowsers, renderGateCli } from "./renderga
  * up as diagnostics with zero setup - no node, npx or network involved.
  *
  * Only the optional render gate (a real XMLView.create in headless
- * Chromium) needs the external ai-view-check CLI, because it serves the
+ * Chromium) needs the external linter CLI, because it serves the
  * OpenUI5 runtime from its own node_modules and drives a browser.
  */
 
 const CONFIG_SECTION = "abap2ui5";
-const DIAG_SOURCE = "abap2UI5 view-check";
+const DIAG_SOURCE = "abap2UI5-linter";
 
 /** ABAP classes are only checkable when they build views with the generic
  *  builder - the same signal the checker itself uses. */
@@ -171,7 +171,7 @@ interface CheckerCommand {
 
 /** The command used to run the external checker CLI for the render gate. An
  *  explicit setting wins; then a gate installed via "Install Render Gate";
- *  then a local `ai-view-check` checkout under the repos root (both run
+ *  then a local linter checkout under the repos root (both run
  *  with VS Code's own Node.js); npx fetching from GitHub is the last
  *  resort. */
 function checkerCommand(): CheckerCommand {
@@ -193,14 +193,17 @@ function checkerCommand(): CheckerCommand {
   }
   const root = config().get<string>("mcp.reposRoot", "").trim();
   if (root) {
-    const cli = path.join(root, "ai-view-check", "cli.mjs");
-    if (fs.existsSync(cli)) {
-      return { cmd: "node", args: [cli], env: {}, installed: true };
+    // ai-view-check is the checkout's pre-rename directory name
+    for (const dir of ["abap2UI5-linter", "ai-view-check"]) {
+      const cli = path.join(root, dir, "cli.mjs");
+      if (fs.existsSync(cli)) {
+        return { cmd: "node", args: [cli], env: {}, installed: true };
+      }
     }
   }
   return {
     cmd: "npx",
-    args: ["--yes", "github:abap2UI5/ai-view-check"],
+    args: ["--yes", "github:abap2UI5/abap2UI5-linter"],
     env: {},
     installed: false,
   };

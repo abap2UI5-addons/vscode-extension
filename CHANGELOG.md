@@ -4,7 +4,7 @@
 
 - **Self-installing render gate.** *"abap2UI5: Install Render Gate"*
   downloads the self-contained checker bundle (published by
-  ai-view-check's CI) and Chromium into the extension's storage and runs
+  abap2UI5-linter's CI) and Chromium into the extension's storage and runs
   both with VS Code's own runtime - the render gate no longer needs
   node, npm or any PATH setup on the machine. The command is also
   offered directly from the warning when the gate is enabled but
@@ -19,7 +19,7 @@
 
 - **Static view checks in the editor.** Saving an ABAP class that builds
   views with `z2ui5_cl_ai_xml` (or a raw `*.view.xml` / `*.fragment.xml`)
-  now runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
+  now runs the [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter)
   gates and shows the findings in the Problems panel: controls that do
   not exist in UI5 at all (`sap.m.Shell2` - a typo, shown as an error),
   controls or properties newer than your UI5 floor (default 1.71), and
@@ -27,7 +27,7 @@
   are **bundled with the extension** - zero setup, instant, works
   offline, on documents from the ABAP remote filesystem (`adt` scheme)
   and on unsaved buffers. Optionally (`abap2ui5.viewCheck.render`) the
-  external ai-view-check CLI adds real render errors from a headless
+  external abap2UI5-linter (formerly ai-view-check) CLI adds real render errors from a headless
   `XMLView.create`. On demand: *"abap2UI5: Check Views (Static)"*.
   Configure the floor, accepted deviations and the render-gate command
   under `abap2ui5.viewCheck.*`.
@@ -39,7 +39,7 @@
   capability queries, static view validation, deploy into the sandbox,
   transpiled build, headless run returning page errors and a screenshot.
   Point `abap2ui5.mcp.reposRoot` at the folder holding the `abap2UI5`,
-  `ai-demokit` (and optionally `ai-view-check`, `ai-mcp`) checkouts;
+  `ai-demokit` (and optionally `abap2UI5-linter`, `ai-mcp`) checkouts;
   disable with `abap2ui5.mcp.enabled`.
 - The minimum VS Code version moved from 1.85 to **1.101** (June 2025) -
   the first release with the stable MCP server definition API.
