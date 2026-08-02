@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.13.0
+
+- **Findings land on the right line.** Diagnostics used to be placed by
+  searching the file for the first occurrence of a name - in a class with
+  ten buttons, the squiggle sat under the first one no matter which button
+  was broken. The linter now records where every finding came from, so the
+  diagnostic goes exactly there: the second duplicate `id`, the `a( )` call
+  that sets a property twice, the attribute that carries the typo'd value.
+- **Three severities instead of two.** Findings are now classified by the
+  linter itself: `error` (the app breaks), `warning` (it works here, but
+  not necessarily on the UI5 version your system runs) and - new -
+  informational hints for things that are worth knowing but never wrong by
+  themselves, such as an event nothing handles or an icon-only button
+  without a tooltip. They no longer look like defects in the Problems panel.
+- **The binding-path checks now run in the editor at all.** The property
+  gate was called without the model derived from the class, and the rules
+  that need it stayed silent: a `{/TYPO}` the model has no path for, and a
+  table or structure bound to a scalar property. Both now show up on save,
+  and inside a bound aggregation a relative `{TYPO}` is resolved against the
+  **row** - so a misspelled field in a column template, which otherwise just
+  leaves that column empty forever, is caught while you type it.
+- **Two new checks, both of which dump before the app reaches the browser:**
+  the same attribute written twice on one control, and `a( )` on the bare
+  `z2ui5_cl_ai_xml=>factory( )` root with no element to attach it to.
+  `z2ui5_cl_ai_xml` asserts on both.
+
 ## 0.11.0
 
 - **abap2UI5-specific checks - the defects that stay silent at runtime.**
