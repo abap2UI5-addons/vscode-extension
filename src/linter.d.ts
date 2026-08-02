@@ -44,6 +44,8 @@ declare module "@abap2ui5/linter/properties" {
     count?: number;
     /** sapui5-only-control */
     library?: string;
+    /** unknown-binding-path, duplicate-id, event-without-handler */
+    value?: string;
   }
 
   export function loadSnapshot(file?: string): unknown;

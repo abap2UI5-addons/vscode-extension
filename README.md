@@ -141,6 +141,12 @@ gates instead, in the editor:
   metadata snapshot. A control that does not exist at all (`sap.m.Shell2` —
   a typo) is an error; anything newer than the configured UI5 floor
   (default **1.71**) or deprecated is a warning.
+- **abap2UI5-specific rules** — the defects that stay *silent* at runtime:
+  a hand-written binding path the model does not have, `_bind( )` on an
+  event or `_event( )` on a property, a value bound to a local variable
+  (lost after the roundtrip), an event nothing handles, and the obsolete
+  `client->_bind_edit( )`. Plus duplicate `id`s, undeclared namespace
+  prefixes and basic accessibility defects.
 - **Render gate** (optional, `abap2ui5.viewCheck.render`) — the view is
   loaded with a real `XMLView.create` in headless Chromium, so broken
   expression bindings and property-type violations fail too. Install it

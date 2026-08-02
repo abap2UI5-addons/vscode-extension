@@ -2,6 +2,18 @@
 
 ## 0.11.0
 
+- **abap2UI5-specific checks - the defects that stay silent at runtime.**
+  A hand-written binding path the model does not have (the field just
+  stays empty), `_bind( )` on an event or `_event( )` on a property, a
+  value bound to a local variable (lost after the roundtrip, because
+  the instance is serialized and the method stack is not), an event
+  nothing handles, and the obsolete `client->_bind_edit( )`. No UI5
+  tooling can see these - they live in the relationship between the
+  ABAP class and the view it builds.
+- **More view checks:** a duplicate `id` (a runtime error), a namespace
+  prefix used but never declared, unbalanced braces in `{= … }`
+  expression bindings, and two unambiguous accessibility defects
+  (icon-only button without a tooltip, image without `alt`).
 - **SAPUI5 or OpenUI5** (`abap2ui5.viewCheck.distribution`). SAPUI5 ships
   libraries OpenUI5 does not - `sap.ui.comp` (Smart controls),
   `sap.suite.*`, `sap.ushell`, `sap.fe`, `sap.viz` - so a SmartTable is

@@ -129,6 +129,32 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 
 function findingMessage(f: PropertyFinding): string {
   switch (f.type) {
+    case "unknown-binding-path":
+      return `the model has no path {${f.value}} - this stays silently empty`;
+    case "binding-for-event":
+      return `${f.member} is an event but carries a binding - use client->_event( )`;
+    case "event-for-property":
+      return `${f.member} is a property but carries an event handler - use client->_bind( )`;
+    case "obsolete-binder":
+      return `client->${f.member}( ) is obsolete - use client->_bind( )`;
+    case "binding-to-local":
+      return (
+        `${f.member} is a local variable - its value is lost after the ` +
+        "roundtrip, bind an instance attribute"
+      );
+    case "event-without-handler":
+      return (
+        `event ${f.value} is raised but never handled - a dead control, ` +
+        "unless the roundtrip alone is intended"
+      );
+    case "duplicate-id":
+      return `id="${f.value}" is used twice - duplicate ID error at runtime`;
+    case "undeclared-namespace":
+      return `namespace prefix '${f.member}' is used but never declared (xmlns:${f.member})`;
+    case "invalid-expression-binding":
+      return `unbalanced braces or parens in the expression binding`;
+    case "missing-accessibility":
+      return `${f.control} has no ${f.member} - not usable with a screen reader`;
     case "sapui5-only-control":
       return `${f.control} needs SAPUI5 - ${f.library} is not part of OpenUI5`;
     case "unknown-control":
@@ -168,6 +194,11 @@ const ERROR_TYPES = new Set([
   "invalid-aggregation-child",
   "too-many-children",
   "excess-shut",
+  "duplicate-id",
+  "undeclared-namespace",
+  "invalid-expression-binding",
+  "binding-for-event",
+  "event-for-property",
 ]);
 
 function toDiagnostics(
@@ -178,8 +209,12 @@ function toDiagnostics(
   const diags: vscode.Diagnostic[] = [];
   for (const f of findings) {
     const local = (f.control ?? "").split(".").pop() ?? "";
+    const needle =
+      f.type === "unknown-binding-path" || f.type === "event-without-handler"
+        ? String(f.value ?? "").replace(/^\//, "")
+        : f.member || local;
     const d = new vscode.Diagnostic(
-      findingRange(doc, f.member || local),
+      findingRange(doc, needle),
       findingMessage(f),
       ERROR_TYPES.has(f.type)
         ? vscode.DiagnosticSeverity.Error
