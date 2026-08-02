@@ -30,7 +30,7 @@ find a German string anywhere, it is a leftover — translate it.
 | `src/extension.ts` | Activation, the F9 command, the Ctrl+F3 activate-and-reload command, webview tab and panel, reload handling, credentials |
 | `src/webview.ts` | HTML for the preview and the welcome screen (theme variables, CSP nonce) |
 | `src/proxy.ts` | Local reverse proxy that injects basic auth so the embedded iframe avoids a 401 |
-| `src/viewcheck.ts` | Static view checks via ai-view-check: on-save + on-demand, findings as diagnostics |
+| `src/viewcheck.ts` | Static view checks via abap2UI5-linter: on-save + on-demand, findings as diagnostics |
 | `src/mcp.ts` | Registers the abap2UI5 MCP server (ai-mcp) for MCP clients in the window |
 | `snippets/` | ABAP snippets contributed to the editor |
 | `media/` | Icons: `icon.svg` (panel), `icon-light/dark.svg` (preview tab), `icon.png` (gallery) |

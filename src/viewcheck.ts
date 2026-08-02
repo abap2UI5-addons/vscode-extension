@@ -3,33 +3,37 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { spawn } from "child_process";
-import { prepareAbap } from "@abap2ui5/view-check/reconstruct";
+import { checkAbapRules } from "@abap2ui5/linter/abap-rules";
+import { prepareAbap } from "@abap2ui5/linter/reconstruct";
 import {
   checkNodes,
   loadSnapshot,
   parseXml,
   PropertyFinding,
-} from "@abap2ui5/view-check/properties";
+} from "@abap2ui5/linter/properties";
+import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
 
 /*
- * Static view validation through ai-view-check
- * (https://github.com/abap2UI5/ai-view-check).
+ * Static view validation through abap2UI5-linter
+ * (https://github.com/abap2UI5/abap2UI5-linter).
  *
  * The property gate runs INSIDE the extension: the checker library and its
  * UI5 metadata snapshot are bundled, so unknown controls (typos), controls
- * or properties newer than the configured UI5 floor and deprecations show
- * up as diagnostics with zero setup - no node, npx or network involved.
+ * or properties introduced after the configured target UI5 version and
+ * deprecations already in effect there show up as diagnostics with zero
+ * setup - no node, npx or network involved.
  *
  * Only the optional render gate (a real XMLView.create in headless
- * Chromium) needs the external ai-view-check CLI, because it serves the
+ * Chromium) needs the external linter CLI, because it serves the
  * OpenUI5 runtime from its own node_modules and drives a browser.
  */
 
 const CONFIG_SECTION = "abap2ui5";
-const DIAG_SOURCE = "abap2UI5 view-check";
+const DIAG_SOURCE = "abap2UI5-linter";
 
-/** ABAP classes are only checkable when they build views with the generic builder. */
-const BUILDER_RE = /z2ui5_cl_ai_xml/i;
+/** ABAP classes are only checkable when they build views with the generic
+ *  builder - the same signal the checker itself uses. */
+const FACTORY_RE = /z2ui5_cl_ai_xml=>factory/i;
 
 const VIEW_XML_RE = /\.(view|fragment)\.xml$/i;
 
@@ -46,8 +50,26 @@ let running = false;
 
 let snapshotCache: unknown;
 
+/** The target/metadata versions are logged once per session. */
+let versionLogged = false;
+
+/** Set by registerViewCheck - checkerCommand needs the extension's global
+ *  storage to find a self-installed render gate. */
+let extContext: vscode.ExtensionContext | undefined;
+
 function config() {
   return vscode.workspace.getConfiguration(CONFIG_SECTION);
+}
+
+/** The UI5 version the bundled snapshot was generated from - read straight
+ *  from the file, so an older snapshot without the field is fine. */
+function snapshotUi5Version(): string | undefined {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, "properties.json"), "utf8");
+    return JSON.parse(raw).ui5Version;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The bundled UI5 metadata snapshot - copied next to the bundle by the
@@ -59,14 +81,18 @@ function snapshot(): unknown {
   return snapshotCache;
 }
 
-/** Checkable = a view/fragment XML, or any document whose text uses the
- *  generic builder. Deliberately not keyed on the language id - ABAP
- *  extensions differ in what they register, the content is the signal. */
+/** Checkable = a view/fragment XML, or an ABAP source calling the generic
+ *  builder's factory. "ABAP source" means the abap language id or an *.abap
+ *  file name - ABAP extensions differ in what they register, but a log or
+ *  markdown file merely QUOTING builder code must not qualify. */
 function isCheckable(doc: vscode.TextDocument): boolean {
   if (VIEW_XML_RE.test(doc.fileName)) {
     return true;
   }
-  return BUILDER_RE.test(doc.getText());
+  if (doc.languageId !== "abap" && !/\.abap$/i.test(doc.fileName)) {
+    return false;
+  }
+  return FACTORY_RE.test(doc.getText());
 }
 
 /** The document to check on demand: the active editor when it is checkable,
@@ -103,17 +129,100 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 }
 
 function findingMessage(f: PropertyFinding): string {
-  if (f.type === "unknown-control") {
-    return `${f.control} does not exist in UI5 - typo?`;
+  switch (f.type) {
+    case "view-never-displayed":
+      return "a view is built but never displayed - client->view_display( ) is missing";
+    case "missing-required-aggregation":
+      return `${f.control} has data but no ${f.member} - it renders empty`;
+    case "collection-bound-to-property":
+      return `${f.member} is a scalar property but {${f.value}} is a table/structure`;
+    case "member-deprecated":
+      return (
+        `${f.control} ${f.member} is deprecated` +
+        (f.deprecated ? ` (${String((f.deprecated as { text?: string }).text ?? f.deprecated).slice(0, 120)})` : "")
+      );
+    case "duplicate-aggregation":
+      return `${f.control} opens ${f.member} twice - the second tag replaces the first`;
+    case "unconverted-abap-boolean":
+      return (
+        `${f.member}: the ABAP boolean ${f.value} reaches the view as 'X'/' ' - ` +
+        "wrap it in z2ui5_cl_ai_xml=>as_bool( )"
+      );
+    case "unknown-binding-path":
+      return `the model has no path {${f.value}} - this stays silently empty`;
+    case "binding-for-event":
+      return `${f.member} is an event but carries a binding - use client->_event( )`;
+    case "event-for-property":
+      return `${f.member} is a property but carries an event handler - use client->_bind( )`;
+    case "obsolete-binder":
+      return `client->${f.member}( ) is obsolete - use client->_bind( )`;
+    case "binding-to-local":
+      return (
+        `${f.member} is a local variable - its value is lost after the ` +
+        "roundtrip, bind an instance attribute"
+      );
+    case "event-without-handler":
+      return (
+        `event ${f.value} is raised but never handled - a dead control, ` +
+        "unless the roundtrip alone is intended"
+      );
+    case "duplicate-id":
+      return `id="${f.value}" is used twice - duplicate ID error at runtime`;
+    case "undeclared-namespace":
+      return `namespace prefix '${f.member}' is used but never declared (xmlns:${f.member})`;
+    case "invalid-expression-binding":
+      return `unbalanced braces or parens in the expression binding`;
+    case "missing-accessibility":
+      return `${f.control} has no ${f.member} - not usable with a screen reader`;
+    case "sapui5-only-control":
+      return `${f.control} needs SAPUI5 - ${f.library} is not part of OpenUI5`;
+    case "unknown-control":
+      return `${f.control} does not exist in UI5 - typo?`;
+    case "unknown-property":
+      return `${f.control} has no property/event/association ${f.member} - typo?`;
+    case "unknown-aggregation":
+      return `${f.control} has no aggregation ${f.member} - typo?`;
+    case "invalid-property-value":
+      return (
+        `${f.member}="${f.value}" is not valid for ${f.control} - ` +
+        (f.allowed ? `allowed: ${f.allowed.join(", ")}` : `expected ${f.memberType}`)
+      );
+    case "invalid-aggregation-child":
+      return `${f.control} is not allowed in ${f.parentControl} ${f.member} (expects ${f.expected})`;
+    case "too-many-children":
+      return `${f.control} ${f.member} takes one child, ${f.count} given`;
+    case "excess-shut":
+      return "one shut( ) more than the tree is deep - this asserts at runtime";
+    case "control-too-new":
+      return `${f.control} is @since ${f.since} - newer than the UI5 ${f.minUi5} you target`;
+    case "control-deprecated":
+      return `${f.control} is deprecated${f.deprecated ? ` (${String(f.deprecated).slice(0, 120)})` : ""}`;
+    default:
+      return `${f.control} ${f.member} is @since ${f.since} - newer than the UI5 ${f.minUi5} you target`;
   }
-  if (f.type === "control-too-new") {
-    return `${f.control} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
-  }
-  if (f.type === "control-deprecated") {
-    return `${f.control} is deprecated${f.deprecated ? ` (${String(f.deprecated).slice(0, 120)})` : ""}`;
-  }
-  return `${f.control} ${f.member} is @since ${f.since} - newer than the ${f.minUi5} UI5 floor`;
 }
+
+/** Defects that break the app (or dump) are errors; version-floor and
+ *  deprecation findings are warnings. */
+const ERROR_TYPES = new Set([
+  "sapui5-only-control",
+  "unknown-control",
+  "unknown-property",
+  "unknown-aggregation",
+  "invalid-property-value",
+  "invalid-aggregation-child",
+  "too-many-children",
+  "excess-shut",
+  "duplicate-id",
+  "undeclared-namespace",
+  "invalid-expression-binding",
+  "binding-for-event",
+  "event-for-property",
+  "unconverted-abap-boolean",
+  "duplicate-aggregation",
+  "view-never-displayed",
+  "collection-bound-to-property",
+]);
 
 function toDiagnostics(
   doc: vscode.TextDocument,
@@ -123,10 +232,14 @@ function toDiagnostics(
   const diags: vscode.Diagnostic[] = [];
   for (const f of findings) {
     const local = (f.control ?? "").split(".").pop() ?? "";
+    const needle =
+      f.type === "unknown-binding-path" || f.type === "event-without-handler"
+        ? String(f.value ?? "").replace(/^\//, "")
+        : f.member || local;
     const d = new vscode.Diagnostic(
-      findingRange(doc, f.member || local),
+      findingRange(doc, needle),
       findingMessage(f),
-      f.type === "unknown-control"
+      ERROR_TYPES.has(f.type)
         ? vscode.DiagnosticSeverity.Error
         : vscode.DiagnosticSeverity.Warning
     );
@@ -150,23 +263,53 @@ function toDiagnostics(
 // External render gate (optional)
 // ---------------------------------------------------------------------------
 
+interface CheckerCommand {
+  cmd: string;
+  args: string[];
+  env: Record<string, string>;
+  /** true when there is a real local installation to run - false means the
+   *  npx fallback, which needs npm on the machine */
+  installed: boolean;
+}
+
 /** The command used to run the external checker CLI for the render gate. An
- *  explicit setting wins; otherwise a local `ai-view-check` checkout next to
- *  the configured repos root is preferred (runs with VS Code's own Node.js),
- *  falling back to npx fetching the source from GitHub. */
-function checkerCommand(): string[] {
+ *  explicit setting wins; then a gate installed via "Install Render Gate";
+ *  then a local linter checkout under the repos root (both run
+ *  with VS Code's own Node.js); npx fetching from GitHub is the last
+ *  resort. */
+function checkerCommand(): CheckerCommand {
   const explicit = config().get<string>("viewCheck.command", "").trim();
   if (explicit) {
-    return explicit.split(/\s+/);
+    const [cmd, ...args] = explicit.split(/\s+/);
+    return { cmd, args, env: {}, installed: true };
+  }
+  if (extContext) {
+    const cli = renderGateCli(extContext);
+    if (cli) {
+      return {
+        cmd: "node",
+        args: [cli],
+        env: { PLAYWRIGHT_BROWSERS_PATH: renderGateBrowsers(extContext) },
+        installed: true,
+      };
+    }
   }
   const root = config().get<string>("mcp.reposRoot", "").trim();
   if (root) {
-    const cli = path.join(root, "ai-view-check", "cli.mjs");
-    if (fs.existsSync(cli)) {
-      return ["node", cli];
+    // ai-view-check is the checkout's pre-rename directory name
+    for (const dir of ["abap2UI5-linter", "ai-view-check"]) {
+      const cli = path.join(root, dir, "cli.mjs");
+      if (fs.existsSync(cli)) {
+        return { cmd: "node", args: [cli], env: {}, installed: true };
+      }
     }
   }
-  return ["npx", "--yes", "github:abap2UI5/ai-view-check"];
+  return {
+    cmd: "npx",
+    args: ["--yes", "github:abap2UI5/abap2UI5-linter"],
+    env: {},
+    installed: false,
+  };
 }
 
 /** The extension host often runs with a minimal PATH (a GUI-launched VS Code
@@ -207,11 +350,11 @@ function runRenderGate(
   const scratch = scratchFileFor(doc, scratchDir);
   fs.writeFileSync(scratch, doc.getText());
 
-  const [cmd, ...rest] = checkerCommand();
-  const args = [...rest, scratch, "--json", "--advisory", "--no-properties"];
+  const checker = checkerCommand();
+  const args = [...checker.args, scratch, "--json", "--advisory", "--no-properties"];
   const cwd =
     vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ?? os.homedir();
-  log(`view-check: render gate - ${cmd} ${args.join(" ")}`);
+  log(`view-check: render gate - ${checker.cmd} ${args.join(" ")}`);
 
   return new Promise((resolve) => {
     const done = (result: RenderResult | undefined) => {
@@ -219,16 +362,16 @@ function runRenderGate(
       resolve(result);
     };
     const child =
-      cmd === "node"
+      checker.cmd === "node"
         ? // run with the Node.js inside VS Code itself - works without any
           // node installation on the PATH
           spawn(process.execPath, args, {
             cwd,
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", ...checker.env },
           })
-        : spawn(cmd, args, {
+        : spawn(checker.cmd, args, {
             cwd,
-            env: spawnEnv(),
+            env: { ...spawnEnv(), ...checker.env },
             shell: process.platform === "win32",
           });
     let stdout = "";
@@ -239,13 +382,21 @@ function runRenderGate(
       log(`view-check: render gate failed to start - ${String(err)}`);
       if (!spawnFailed) {
         spawnFailed = true;
-        vscode.window.showWarningMessage(
-          `abap2UI5: the render gate needs the ai-view-check CLI, and ${cmd} ` +
-            "was not found. Clone https://github.com/abap2UI5/ai-view-check, " +
-            "run `npm ci` and `npx playwright install chromium` in it, and " +
-            "point abap2ui5.mcp.reposRoot at its parent folder. The property " +
-            "gate keeps working without it."
-        );
+        void vscode.window
+          .showWarningMessage(
+            "abap2UI5: the render gate is enabled but its checker could not " +
+              `be started (${checker.cmd} not found). Install it once - ` +
+              "everything runs with VS Code's own runtime. The property " +
+              "gate keeps working either way.",
+            "Install render gate"
+          )
+          .then(async (pick) => {
+            if (pick === "Install render gate" && extContext) {
+              if (await installRenderGate(extContext, log)) {
+                spawnFailed = false;
+              }
+            }
+          });
       }
       done(undefined);
     });
@@ -293,6 +444,15 @@ async function checkDocument(
   try {
     const cfg = config();
     const minUi5 = cfg.get<string>("viewCheck.minUi5", "1.71");
+    const distribution = cfg.get<string>("viewCheck.distribution", "sapui5");
+    if (!versionLogged) {
+      versionLogged = true;
+      const dist = distribution === "openui5" ? "OpenUI5" : "SAPUI5";
+      log(
+        `view-check: target ${dist} ${minUi5}, ` +
+          `metadata from ${snapshotUi5Version() ?? "unknown"}`
+      );
+    }
     const allow = cfg.get<string[]>("viewCheck.allow", []);
     const text = doc.getText();
     const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
@@ -303,7 +463,7 @@ async function checkDocument(
     let helperNote = "";
     if (isXml) {
       findings.push(
-        ...checkNodes(parseXml(text), { data: snapshot(), minUi5, allow })
+        ...checkNodes(parseXml(text), { data: snapshot(), minUi5, allow, distribution })
       );
     } else {
       const prep = prepareAbap(text);
@@ -321,9 +481,27 @@ async function checkDocument(
         }
         return;
       }
-      for (const node of prep.nodes) {
-        findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow }));
+      if (prep.nodes.length === 0) {
+        // usesBuilder matched, but nothing was reconstructable - saying
+        // "passed" here would claim a validation that never happened
+        diagnostics.delete(doc.uri);
+        log(
+          `view-check: ${path.basename(doc.fileName)} - builder call found ` +
+            "but no view could be reconstructed, nothing was validated"
+        );
+        if (announce) {
+          vscode.window.showInformationMessage(
+            `abap2UI5: no view could be reconstructed from ` +
+              `${path.basename(doc.fileName)} - nothing was validated.`
+          );
+        }
+        return;
       }
+      for (const node of prep.nodes) {
+        findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow, distribution }));
+      }
+      // rules that need the class itself, not just the view tree
+      findings.push(...checkAbapRules(text));
       renderable = prep.docs.length > 0 && prep.helperTokens === 0;
       if (prep.helperTokens > 0) {
         helperNote =
@@ -368,6 +546,7 @@ export function registerViewCheck(
   context: vscode.ExtensionContext,
   log: (m: string) => void
 ): void {
+  extContext = context;
   const diagnostics =
     vscode.languages.createDiagnosticCollection("abap2ui5-view-check");
 
@@ -379,7 +558,8 @@ export function registerViewCheck(
         log(
           doc
             ? `view-check: ${path.basename(doc.fileName)} is not checkable - ` +
-                "no z2ui5_cl_ai_xml usage and not a *.view.xml"
+                "not an ABAP source calling z2ui5_cl_ai_xml=>factory and " +
+                "not a *.view.xml"
             : "view-check: no text editor open"
         );
         vscode.window.showInformationMessage(

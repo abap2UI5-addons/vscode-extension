@@ -9,7 +9,7 @@ const watch = process.argv.includes("--watch");
  *  bundle - the property gate reads it at runtime. */
 function copySnapshot() {
   const src = path.join(
-    path.dirname(require.resolve("@abap2ui5/view-check/properties")),
+    path.dirname(require.resolve("@abap2ui5/linter/properties")),
     "..",
     "data",
     "properties.json"
@@ -31,7 +31,7 @@ async function main() {
     outfile: "dist/extension.js",
     // vscode is provided by the runtime, it must not be bundled.
     external: ["vscode"],
-    // The bundled @abap2ui5/view-check modules use import.meta.url, which
+    // The bundled @abap2ui5/linter modules use import.meta.url, which
     // does not exist in a CJS bundle - substitute a __filename-based URL.
     define: { "import.meta.url": "import_meta_url" },
     inject: ["scripts/import-meta-url-shim.mjs"],

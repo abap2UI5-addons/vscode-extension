@@ -1,10 +1,60 @@
 # Changelog
 
+## 0.11.0
+
+- **abap2UI5-specific checks - the defects that stay silent at runtime.**
+  A hand-written binding path the model does not have (the field just
+  stays empty), `_bind( )` on an event or `_event( )` on a property, a
+  value bound to a local variable (lost after the roundtrip, because
+  the instance is serialized and the method stack is not), an event
+  nothing handles, and the obsolete `client->_bind_edit( )`. No UI5
+  tooling can see these - they live in the relationship between the
+  ABAP class and the view it builds. Also caught: an ABAP boolean
+  written straight into the view - it arrives as `'X'`/`' '`, and since
+  UI5 reads any non-empty string as true, `visible = abap_false` makes
+  the control *visible*. Wrap it in `z2ui5_cl_ai_xml=>as_bool( )`.
+- **Deprecated properties and duplicate aggregations.** Deprecation was
+  only checked on control level; it now applies per property too, with
+  the same target-version rule. And opening the same aggregation twice
+  under one control - where the second tag silently replaces the first -
+  is reported as an error.
+- **Three more silent failures caught:** a view built but never
+  displayed (an empty page, no error), a `Table` bound to rows but
+  given no `columns`, and a table or structure bound to a scalar
+  property.
+- **More view checks:** a duplicate `id` (a runtime error), a namespace
+  prefix used but never declared, unbalanced braces in `{= … }`
+  expression bindings, and two unambiguous accessibility defects
+  (icon-only button without a tooltip, image without `alt`).
+- **SAPUI5 or OpenUI5** (`abap2ui5.viewCheck.distribution`). SAPUI5 ships
+  libraries OpenUI5 does not - `sap.ui.comp` (Smart controls),
+  `sap.suite.*`, `sap.ushell`, `sap.fe`, `sap.viz` - so a SmartTable is
+  perfectly fine on SAPUI5 and a guaranteed runtime error on OpenUI5.
+  Set it to what your system serves; with `openui5` those controls are
+  reported as errors instead of being skipped silently.
+- **The target UI5 version now governs deprecations too**
+  (`abap2ui5.viewCheck.minUi5`). A control deprecated as of 1.149 is no
+  longer flagged for a 1.71 target - only from the version its
+  deprecation takes effect. The output channel logs the target version
+  and the version the bundled metadata came from.
+- **Self-installing render gate.** *"abap2UI5: Install Render Gate"*
+  downloads the self-contained checker bundle (published by
+  abap2UI5-linter's CI) and Chromium into the extension's storage and runs
+  both with VS Code's own runtime - the render gate no longer needs
+  node, npm or any PATH setup on the machine. The command is also
+  offered directly from the warning when the gate is enabled but
+  missing, and installing enables `abap2ui5.viewCheck.render`.
+- **Fix: no more "view check passed" on files that only quote builder
+  code** (e.g. a log file embedding class source). Checkability now
+  requires an ABAP source actually calling `z2ui5_cl_ai_xml=>factory`
+  (or a `*.view.xml`), and when nothing can be reconstructed the check
+  says so instead of claiming a pass.
+
 ## 0.10.0
 
 - **Static view checks in the editor.** Saving an ABAP class that builds
   views with `z2ui5_cl_ai_xml` (or a raw `*.view.xml` / `*.fragment.xml`)
-  now runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
+  now runs the [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter)
   gates and shows the findings in the Problems panel: controls that do
   not exist in UI5 at all (`sap.m.Shell2` - a typo, shown as an error),
   controls or properties newer than your UI5 floor (default 1.71), and
@@ -12,7 +62,7 @@
   are **bundled with the extension** - zero setup, instant, works
   offline, on documents from the ABAP remote filesystem (`adt` scheme)
   and on unsaved buffers. Optionally (`abap2ui5.viewCheck.render`) the
-  external ai-view-check CLI adds real render errors from a headless
+  external abap2UI5-linter (formerly ai-view-check) CLI adds real render errors from a headless
   `XMLView.create`. On demand: *"abap2UI5: Check Views (Static)"*.
   Configure the floor, accepted deviations and the render-gate command
   under `abap2ui5.viewCheck.*`.
@@ -24,7 +74,7 @@
   capability queries, static view validation, deploy into the sandbox,
   transpiled build, headless run returning page errors and a screenshot.
   Point `abap2ui5.mcp.reposRoot` at the folder holding the `abap2UI5`,
-  `ai-demokit` (and optionally `ai-view-check`, `ai-mcp`) checkouts;
+  `ai-demokit` (and optionally `abap2UI5-linter`, `ai-mcp`) checkouts;
   disable with `abap2ui5.mcp.enabled`.
 - The minimum VS Code version moved from 1.85 to **1.101** (June 2025) -
   the first release with the stable MCP server definition API.

@@ -11,17 +11,19 @@ import * as path from "path";
  * build, headless run with screenshot.
  *
  * The server orchestrates sibling checkouts (abap2UI5, ai-demokit,
- * ai-view-check). Point `abap2ui5.mcp.reposRoot` at the folder containing
+ * abap2UI5-linter). Point `abap2ui5.mcp.reposRoot` at the folder containing
  * them and the matching *_HOME environment variables are passed along.
  */
 
 const CONFIG_SECTION = "abap2ui5";
 const PROVIDER_ID = "abap2ui5.mcp";
 
-/** Repo-name -> env var the server resolves it with (see ai-mcp lib/repos.mjs). */
+/** Repo-name -> env var the server resolves it with (see ai-mcp lib/repos.mjs).
+ *  ai-view-check is the linter's pre-rename directory name. */
 const HOME_VARS: ReadonlyArray<readonly [string, string]> = [
   ["abap2UI5", "A2UI5_HOME"],
   ["ai-demokit", "AI_DEMOKIT_HOME"],
+  ["abap2UI5-linter", "AI_VIEW_CHECK_HOME"],
   ["ai-view-check", "AI_VIEW_CHECK_HOME"],
 ];
 
@@ -52,6 +54,9 @@ function serverEnv(): Record<string, string> {
   const root = config().get<string>("mcp.reposRoot", "").trim();
   if (root) {
     for (const [repo, envVar] of HOME_VARS) {
+      if (env[envVar]) {
+        continue; // first match wins - the new directory name over the legacy one
+      }
       const dir = path.join(root, repo);
       if (fs.existsSync(dir)) {
         env[envVar] = dir;

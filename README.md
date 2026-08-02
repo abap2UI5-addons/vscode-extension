@@ -128,21 +128,35 @@ The key is only taken over for ABAP objects opened from a system (scheme
 
 abap2UI5 views are built as strings — a typo'd property or a control newer
 than your system's UI5 version normally fails at runtime in the browser. The
-extension runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
+extension runs the [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter)
 gates instead, in the editor:
 
+- **SAPUI5 or OpenUI5** (`abap2ui5.viewCheck.distribution`) — SAPUI5 ships
+  libraries OpenUI5 does not (`sap.ui.comp`, `sap.suite.*`, `sap.ushell`,
+  `sap.fe`, …), so a SmartTable is fine on SAPUI5 and a guaranteed runtime
+  error on OpenUI5. Set it to what your system serves; with `openui5` those
+  controls become errors.
 - **Property gate** — bundled with the extension, zero setup, instant:
   every control and property written in the view is resolved against a UI5
   metadata snapshot. A control that does not exist at all (`sap.m.Shell2` —
   a typo) is an error; anything newer than the configured UI5 floor
   (default **1.71**) or deprecated is a warning.
+- **abap2UI5-specific rules** — the defects that stay *silent* at runtime:
+  a hand-written binding path the model does not have, `_bind( )` on an
+  event or `_event( )` on a property, a value bound to a local variable
+  (lost after the roundtrip), an event nothing handles, and the obsolete
+  `client->_bind_edit( )`. Plus duplicate `id`s, undeclared namespace
+  prefixes and basic accessibility defects.
 - **Render gate** (optional, `abap2ui5.viewCheck.render`) — the view is
   loaded with a real `XMLView.create` in headless Chromium, so broken
-  expression bindings and property-type violations fail too. This gate runs
-  the external ai-view-check CLI: clone it, run `npm ci` and
-  `npx playwright install chromium` in it, and point
-  `abap2ui5.mcp.reposRoot` at its parent folder (it then runs with VS
-  Code's own Node.js — nothing needs to be on the PATH), or set
+  expression bindings and property-type violations fail too. Install it
+  once with *"abap2UI5: Install Render Gate"*: the command downloads the
+  self-contained checker bundle (~30 MB, published by abap2UI5-linter's CI)
+  and Chromium into the extension's storage and runs everything with VS
+  Code's own runtime — no node, npm or PATH setup on the machine.
+  Alternatively point `abap2ui5.mcp.reposRoot` at a folder containing your
+  own `abap2UI5-linter` checkout (`npm ci` +
+  `npx playwright install chromium` done), or set
   `abap2ui5.viewCheck.command`.
 
 Checked are ABAP classes building views with the generic `z2ui5_cl_ai_xml`
@@ -168,7 +182,7 @@ an AI agent the full abap2UI5 development loop **without an SAP system**:
 
 The server orchestrates local checkouts of `abap2UI5` and
 [`ai-demokit`](https://github.com/abap2UI5/ai-demokit) (plus optionally
-`ai-view-check` and `ai-mcp` itself). Clone them into one folder and point
+`abap2UI5-linter` and `ai-mcp` itself). Clone them into one folder and point
 `abap2ui5.mcp.reposRoot` at it — the extension passes the matching
 `A2UI5_HOME` / `AI_DEMOKIT_HOME` / `AI_VIEW_CHECK_HOME` variables to the
 server and prefers the local `ai-mcp` checkout over downloading via npx.
@@ -183,13 +197,14 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2ui5.openMode` | `tab` | `tab`, `panel` or `external` |
 | `abap2ui5.reloadOn` | `activation` | When the preview reloads on its own: `activation`, `save` or `never` |
 | `abap2ui5.viewCheck.onSave` | `true` | Run the static view check when a checkable file is saved |
-| `abap2ui5.viewCheck.command` | – | Command running the ai-view-check CLI (empty = local checkout or npx) |
-| `abap2ui5.viewCheck.minUi5` | `1.71` | UI5 floor for the property gate |
+| `abap2ui5.viewCheck.command` | – | Command running the abap2UI5-linter (formerly ai-view-check) CLI (empty = local checkout or npx) |
+| `abap2ui5.viewCheck.minUi5` | `1.71` | The UI5 version your system runs — checked against in both directions |
+| `abap2ui5.viewCheck.distribution` | `sapui5` | Which distribution the system serves: `sapui5` or `openui5` |
 | `abap2ui5.viewCheck.render` | `false` | Also run the headless render gate |
 | `abap2ui5.viewCheck.allow` | `[]` | Accepted deviations, e.g. `sap.m.GenericTile.systemInfo` |
 | `abap2ui5.mcp.enabled` | `true` | Offer the abap2UI5 MCP server to MCP clients |
 | `abap2ui5.mcp.command` | – | Command starting the MCP server (empty = local checkout or npx) |
-| `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `ai-view-check` / `ai-mcp` checkouts |
+| `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `abap2UI5-linter` / `ai-mcp` checkouts |
 
 ## Commands
 
@@ -199,6 +214,7 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2UI5: Activate and Reload Preview (Ctrl+F3)` | Activates the class through your ABAP tooling, then reloads the preview |
 | `abap2UI5: Reload Preview` | Reloads the app currently shown |
 | `abap2UI5: Check Views (Static)` | Runs the static view check on the current file |
+| `abap2UI5: Install Render Gate` | Downloads the render-gate checker and Chromium into the extension's storage |
 | `abap2UI5: Set Launch URL` | Sets (or changes) the launch URL template |
 | `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
 | `abap2UI5: Clear Stored SAP Credentials` | Removes user and password from the SecretStorage |
