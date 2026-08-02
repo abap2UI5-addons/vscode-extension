@@ -9,7 +9,6 @@ import {
   loadSnapshot,
   parseXml,
   PropertyFinding,
-  snapshotVersion,
 } from "@abap2ui5/linter/properties";
 import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
 
@@ -59,6 +58,17 @@ let extContext: vscode.ExtensionContext | undefined;
 
 function config() {
   return vscode.workspace.getConfiguration(CONFIG_SECTION);
+}
+
+/** The UI5 version the bundled snapshot was generated from - read straight
+ *  from the file, so an older snapshot without the field is fine. */
+function snapshotUi5Version(): string | undefined {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, "properties.json"), "utf8");
+    return JSON.parse(raw).ui5Version;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The bundled UI5 metadata snapshot - copied next to the bundle by the
@@ -375,8 +385,7 @@ async function checkDocument(
     const minUi5 = cfg.get<string>("viewCheck.minUi5", "1.71");
     if (!versionLogged) {
       versionLogged = true;
-      const snap = snapshotVersion(path.join(__dirname, "properties.json"));
-      log(`view-check: target UI5 ${minUi5}, metadata from ${snap ?? "unknown"}`);
+      log(`view-check: target UI5 ${minUi5}, metadata from ${snapshotUi5Version() ?? "unknown"}`);
     }
     const allow = cfg.get<string[]>("viewCheck.allow", []);
     const text = doc.getText();

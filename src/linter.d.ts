@@ -46,8 +46,6 @@ declare module "@abap2ui5/linter/properties" {
 
   export function loadSnapshot(file?: string): unknown;
 
-  export function snapshotVersion(file?: string): string | null;
-
   export function parseXml(xml: string): ViewNode;
 
   export function checkNodes(
