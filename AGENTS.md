@@ -126,6 +126,18 @@ Facts an agent cannot see from the code but will trip over:
   execute for the render gate therefore changes without any release of this
   extension — when debugging a render-gate report, check what the bundle
   currently contains, not only the pinned package.
+- **Known divergence: the editor does not read `abap2ui5lint.jsonc`.** The
+  linter gained a repo-level config file (paths, UI5 floor, distribution,
+  fail level) that its CLI and its GitHub Action honour, so CI checks a repo
+  against the floor that repo pins. `src/viewcheck.ts` still takes
+  `viewCheck.minUi5` / `.distribution` / `.allow` from VS Code settings only,
+  so the same file can be clean in the editor and fail in CI. The fix is to
+  prefer the workspace's `abap2ui5lint.jsonc` via the linter's exported
+  `findConfig`/`loadConfig` (`@abap2ui5/linter/config`) and fall back to the
+  VS Code settings — do it in the same change that bumps the linter lock far
+  enough to have that module, and do NOT re-implement the JSONC parsing here
+  (two copies of the config semantics is exactly the drift this file warns
+  about elsewhere).
 - The MCP registration (`src/mcp.ts`) and the view checker still resolve the
   **pre-rename alias `ai-view-check`** alongside `abap2UI5-linter` (mirrored
   in ai-mcp's `lib/repos.mjs`) — drop it only in a coordinated change.
