@@ -28,8 +28,9 @@ import {
 const CONFIG_SECTION = "abap2ui5";
 const DIAG_SOURCE = "abap2UI5 view-check";
 
-/** ABAP classes are only checkable when they build views with the generic builder. */
-const BUILDER_RE = /z2ui5_cl_ai_xml/i;
+/** ABAP classes are only checkable when they build views with the generic
+ *  builder - the same signal the checker itself uses. */
+const FACTORY_RE = /z2ui5_cl_ai_xml=>factory/i;
 
 const VIEW_XML_RE = /\.(view|fragment)\.xml$/i;
 
@@ -59,14 +60,18 @@ function snapshot(): unknown {
   return snapshotCache;
 }
 
-/** Checkable = a view/fragment XML, or any document whose text uses the
- *  generic builder. Deliberately not keyed on the language id - ABAP
- *  extensions differ in what they register, the content is the signal. */
+/** Checkable = a view/fragment XML, or an ABAP source calling the generic
+ *  builder's factory. "ABAP source" means the abap language id or an *.abap
+ *  file name - ABAP extensions differ in what they register, but a log or
+ *  markdown file merely QUOTING builder code must not qualify. */
 function isCheckable(doc: vscode.TextDocument): boolean {
   if (VIEW_XML_RE.test(doc.fileName)) {
     return true;
   }
-  return BUILDER_RE.test(doc.getText());
+  if (doc.languageId !== "abap" && !/\.abap$/i.test(doc.fileName)) {
+    return false;
+  }
+  return FACTORY_RE.test(doc.getText());
 }
 
 /** The document to check on demand: the active editor when it is checkable,
@@ -321,6 +326,22 @@ async function checkDocument(
         }
         return;
       }
+      if (prep.nodes.length === 0) {
+        // usesBuilder matched, but nothing was reconstructable - saying
+        // "passed" here would claim a validation that never happened
+        diagnostics.delete(doc.uri);
+        log(
+          `view-check: ${path.basename(doc.fileName)} - builder call found ` +
+            "but no view could be reconstructed, nothing was validated"
+        );
+        if (announce) {
+          vscode.window.showInformationMessage(
+            `abap2UI5: no view could be reconstructed from ` +
+              `${path.basename(doc.fileName)} - nothing was validated.`
+          );
+        }
+        return;
+      }
       for (const node of prep.nodes) {
         findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow }));
       }
@@ -379,7 +400,8 @@ export function registerViewCheck(
         log(
           doc
             ? `view-check: ${path.basename(doc.fileName)} is not checkable - ` +
-                "no z2ui5_cl_ai_xml usage and not a *.view.xml"
+                "not an ABAP source calling z2ui5_cl_ai_xml=>factory and " +
+                "not a *.view.xml"
             : "view-check: no text editor open"
         );
         vscode.window.showInformationMessage(
