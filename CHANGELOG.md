@@ -18,6 +18,10 @@
   the same target-version rule. And opening the same aggregation twice
   under one control - where the second tag silently replaces the first -
   is reported as an error.
+- **Three more silent failures caught:** a view built but never
+  displayed (an empty page, no error), a `Table` bound to rows but
+  given no `columns`, and a table or structure bound to a scalar
+  property.
 - **More view checks:** a duplicate `id` (a runtime error), a namespace
   prefix used but never declared, unbalanced braces in `{= … }`
   expression bindings, and two unambiguous accessibility defects

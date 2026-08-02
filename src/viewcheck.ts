@@ -130,6 +130,12 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 
 function findingMessage(f: PropertyFinding): string {
   switch (f.type) {
+    case "view-never-displayed":
+      return "a view is built but never displayed - client->view_display( ) is missing";
+    case "missing-required-aggregation":
+      return `${f.control} has data but no ${f.member} - it renders empty`;
+    case "collection-bound-to-property":
+      return `${f.member} is a scalar property but {${f.value}} is a table/structure`;
     case "member-deprecated":
       return (
         `${f.control} ${f.member} is deprecated` +
@@ -214,6 +220,8 @@ const ERROR_TYPES = new Set([
   "event-for-property",
   "unconverted-abap-boolean",
   "duplicate-aggregation",
+  "view-never-displayed",
+  "collection-bound-to-property",
 ]);
 
 function toDiagnostics(
