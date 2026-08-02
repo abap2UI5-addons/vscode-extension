@@ -128,7 +128,7 @@ The key is only taken over for ABAP objects opened from a system (scheme
 
 abap2UI5 views are built as strings — a typo'd property or a control newer
 than your system's UI5 version normally fails at runtime in the browser. The
-extension runs the [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter)
+extension runs the [abap2UI5-linter](https://github.com/abap2UI5/linter)
 gates instead, in the editor:
 
 - **SAPUI5 or OpenUI5** (`abap2ui5.viewCheck.distribution`) — SAPUI5 ships
@@ -155,7 +155,7 @@ gates instead, in the editor:
   and Chromium into the extension's storage and runs everything with VS
   Code's own runtime — no node, npm or PATH setup on the machine.
   Alternatively point `abap2ui5.mcp.reposRoot` at a folder containing your
-  own `abap2UI5-linter` checkout (`npm ci` +
+  own `linter` checkout (`npm ci` +
   `npx playwright install chromium` done), or set
   `abap2ui5.viewCheck.command`.
 
@@ -182,7 +182,7 @@ an AI agent the full abap2UI5 development loop **without an SAP system**:
 
 The server orchestrates local checkouts of `abap2UI5` and
 [`ai-demokit`](https://github.com/abap2UI5/ai-demokit) (plus optionally
-`abap2UI5-linter` and `ai-mcp` itself). Clone them into one folder and point
+`linter` and `ai-mcp` itself). Clone them into one folder and point
 `abap2ui5.mcp.reposRoot` at it — the extension passes the matching
 `A2UI5_HOME` / `AI_DEMOKIT_HOME` / `AI_VIEW_CHECK_HOME` variables to the
 server and prefers the local `ai-mcp` checkout over downloading via npx.
@@ -204,7 +204,7 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2ui5.viewCheck.allow` | `[]` | Accepted deviations, e.g. `sap.m.GenericTile.systemInfo` |
 | `abap2ui5.mcp.enabled` | `true` | Offer the abap2UI5 MCP server to MCP clients |
 | `abap2ui5.mcp.command` | – | Command starting the MCP server (empty = local checkout or npx) |
-| `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `abap2UI5-linter` / `ai-mcp` checkouts |
+| `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `linter` / `ai-mcp` checkouts |
 
 ## Commands
 
@@ -224,7 +224,7 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 
 The extension is distributed as a `.vsix` (not on the Marketplace yet).
 Download the file from the
-[latest release](https://github.com/abap2UI5-addons/vscode-extension/releases/latest)
+[latest release](https://github.com/abap2UI5/vscode-extension/releases/latest)
 — or build it yourself, see *Packaging* below.
 
 **Through the UI:** Extensions panel (`Ctrl/Cmd + Shift + X`) → `…` menu →

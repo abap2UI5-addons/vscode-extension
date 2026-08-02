@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- **The repository moved** from `abap2UI5-addons/vscode-extension` to
+  [`abap2UI5/vscode-extension`](https://github.com/abap2UI5/vscode-extension),
+  and the linter's from `abap2UI5/abap2UI5-linter` to
+  [`abap2UI5/linter`](https://github.com/abap2UI5/linter). GitHub redirects the
+  old addresses, so nothing breaks - but the links, the `npx` fallback and the
+  render-gate download now name the repositories directly.
+- **A linter checkout named `linter` is found again.** Both the MCP
+  registration and the view checker probe `#abap2ui5.mcp.reposRoot#` for a
+  checkout by directory name, and the list only held the two *pre-rename*
+  names. Cloning the linter under its current name therefore produced a
+  checkout the extension ignored: the render gate silently fell back to `npx`
+  and the MCP server started without `AI_VIEW_CHECK_HOME`. `linter` is now
+  probed first, the old names still work.
+- Internal: the bundled `@abap2ui5/linter` moved up 19 commits, from the
+  extraction commit to the current linter release. Six new rules come with it
+  (CSS brace escaping in both its forms, frontend-action wire tokens,
+  unresolved and out-of-range event args, dead PUBLIC attributes).
+
 ## 0.13.0
 
 - **Findings land on the right line.** Diagnostics used to be placed by

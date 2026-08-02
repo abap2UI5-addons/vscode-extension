@@ -1,6 +1,6 @@
 /*
  * Minimal typings for the bundled @abap2ui5/linter library
- * (https://github.com/abap2UI5/abap2UI5-linter) - plain .mjs upstream.
+ * (https://github.com/abap2UI5/linter) - plain .mjs upstream.
  */
 
 declare module "@abap2ui5/linter/reconstruct" {
