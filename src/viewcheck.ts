@@ -79,11 +79,30 @@ function checkerCommand(): string[] {
   return ["npx", "--yes", "github:abap2UI5/ai-view-check"];
 }
 
+/** Checkable = a view/fragment XML, or any document whose text uses the
+ *  generic builder. Deliberately not keyed on the language id - ABAP
+ *  extensions differ in what they register, the content is the signal. */
 function isCheckable(doc: vscode.TextDocument): boolean {
   if (VIEW_XML_RE.test(doc.fileName)) {
     return true;
   }
-  return doc.languageId === "abap" && BUILDER_RE.test(doc.getText());
+  return BUILDER_RE.test(doc.getText());
+}
+
+/** The document to check on demand: the active editor when it is checkable,
+ *  otherwise the first checkable visible editor - the command should work
+ *  even when the focus sits in the preview or another non-text tab. */
+function pickDocument(): vscode.TextDocument | undefined {
+  const active = vscode.window.activeTextEditor?.document;
+  if (active && isCheckable(active)) {
+    return active;
+  }
+  for (const editor of vscode.window.visibleTextEditors) {
+    if (isCheckable(editor.document)) {
+      return editor.document;
+    }
+  }
+  return active;
 }
 
 /** Best-effort mapping of a finding to a source position: the member (or the
@@ -317,8 +336,14 @@ export function registerViewCheck(
   context.subscriptions.push(
     diagnostics,
     vscode.commands.registerCommand("abap2ui5.checkViews", async () => {
-      const doc = vscode.window.activeTextEditor?.document;
+      const doc = pickDocument();
       if (!doc || !isCheckable(doc)) {
+        log(
+          doc
+            ? `view-check: ${path.basename(doc.fileName)} is not checkable - ` +
+                "no z2ui5_cl_ai_xml usage and not a *.view.xml"
+            : "view-check: no text editor open"
+        );
         vscode.window.showInformationMessage(
           "abap2UI5: open an ABAP class that builds views with " +
             "z2ui5_cl_ai_xml (or a *.view.xml file) to check it."
