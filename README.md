@@ -131,6 +131,11 @@ than your system's UI5 version normally fails at runtime in the browser. The
 extension runs the [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter)
 gates instead, in the editor:
 
+- **SAPUI5 or OpenUI5** (`abap2ui5.viewCheck.distribution`) — SAPUI5 ships
+  libraries OpenUI5 does not (`sap.ui.comp`, `sap.suite.*`, `sap.ushell`,
+  `sap.fe`, …), so a SmartTable is fine on SAPUI5 and a guaranteed runtime
+  error on OpenUI5. Set it to what your system serves; with `openui5` those
+  controls become errors.
 - **Property gate** — bundled with the extension, zero setup, instant:
   every control and property written in the view is resolved against a UI5
   metadata snapshot. A control that does not exist at all (`sap.m.Shell2` —
@@ -187,7 +192,8 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2ui5.reloadOn` | `activation` | When the preview reloads on its own: `activation`, `save` or `never` |
 | `abap2ui5.viewCheck.onSave` | `true` | Run the static view check when a checkable file is saved |
 | `abap2ui5.viewCheck.command` | – | Command running the abap2UI5-linter (formerly ai-view-check) CLI (empty = local checkout or npx) |
-| `abap2ui5.viewCheck.minUi5` | `1.71` | UI5 floor for the property gate |
+| `abap2ui5.viewCheck.minUi5` | `1.71` | The UI5 version your system runs — checked against in both directions |
+| `abap2ui5.viewCheck.distribution` | `sapui5` | Which distribution the system serves: `sapui5` or `openui5` |
 | `abap2ui5.viewCheck.render` | `false` | Also run the headless render gate |
 | `abap2ui5.viewCheck.allow` | `[]` | Accepted deviations, e.g. `sap.m.GenericTile.systemInfo` |
 | `abap2ui5.mcp.enabled` | `true` | Offer the abap2UI5 MCP server to MCP clients |

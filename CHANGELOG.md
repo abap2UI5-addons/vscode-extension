@@ -2,6 +2,17 @@
 
 ## 0.11.0
 
+- **SAPUI5 or OpenUI5** (`abap2ui5.viewCheck.distribution`). SAPUI5 ships
+  libraries OpenUI5 does not - `sap.ui.comp` (Smart controls),
+  `sap.suite.*`, `sap.ushell`, `sap.fe`, `sap.viz` - so a SmartTable is
+  perfectly fine on SAPUI5 and a guaranteed runtime error on OpenUI5.
+  Set it to what your system serves; with `openui5` those controls are
+  reported as errors instead of being skipped silently.
+- **The target UI5 version now governs deprecations too**
+  (`abap2ui5.viewCheck.minUi5`). A control deprecated as of 1.149 is no
+  longer flagged for a 1.71 target - only from the version its
+  deprecation takes effect. The output channel logs the target version
+  and the version the bundled metadata came from.
 - **Self-installing render gate.** *"abap2UI5: Install Render Gate"*
   downloads the self-contained checker bundle (published by
   abap2UI5-linter's CI) and Chromium into the extension's storage and runs

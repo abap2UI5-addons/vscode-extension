@@ -42,6 +42,8 @@ declare module "@abap2ui5/linter/properties" {
     expected?: string;
     /** too-many-children */
     count?: number;
+    /** sapui5-only-control */
+    library?: string;
   }
 
   export function loadSnapshot(file?: string): unknown;
@@ -50,6 +52,11 @@ declare module "@abap2ui5/linter/properties" {
 
   export function checkNodes(
     root: ViewNode,
-    opts: { data: unknown; minUi5?: string; allow?: string[] }
+    opts: {
+      data: unknown;
+      minUi5?: string;
+      allow?: string[];
+      distribution?: string;
+    }
   ): PropertyFinding[];
 }

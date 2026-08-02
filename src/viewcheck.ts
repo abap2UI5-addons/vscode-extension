@@ -129,6 +129,8 @@ function findingRange(doc: vscode.TextDocument, needle: string): vscode.Range {
 
 function findingMessage(f: PropertyFinding): string {
   switch (f.type) {
+    case "sapui5-only-control":
+      return `${f.control} needs SAPUI5 - ${f.library} is not part of OpenUI5`;
     case "unknown-control":
       return `${f.control} does not exist in UI5 - typo?`;
     case "unknown-property":
@@ -158,6 +160,7 @@ function findingMessage(f: PropertyFinding): string {
 /** Defects that break the app (or dump) are errors; version-floor and
  *  deprecation findings are warnings. */
 const ERROR_TYPES = new Set([
+  "sapui5-only-control",
   "unknown-control",
   "unknown-property",
   "unknown-aggregation",
@@ -383,9 +386,14 @@ async function checkDocument(
   try {
     const cfg = config();
     const minUi5 = cfg.get<string>("viewCheck.minUi5", "1.71");
+    const distribution = cfg.get<string>("viewCheck.distribution", "sapui5");
     if (!versionLogged) {
       versionLogged = true;
-      log(`view-check: target UI5 ${minUi5}, metadata from ${snapshotUi5Version() ?? "unknown"}`);
+      const dist = distribution === "openui5" ? "OpenUI5" : "SAPUI5";
+      log(
+        `view-check: target ${dist} ${minUi5}, ` +
+          `metadata from ${snapshotUi5Version() ?? "unknown"}`
+      );
     }
     const allow = cfg.get<string[]>("viewCheck.allow", []);
     const text = doc.getText();
@@ -397,7 +405,7 @@ async function checkDocument(
     let helperNote = "";
     if (isXml) {
       findings.push(
-        ...checkNodes(parseXml(text), { data: snapshot(), minUi5, allow })
+        ...checkNodes(parseXml(text), { data: snapshot(), minUi5, allow, distribution })
       );
     } else {
       const prep = prepareAbap(text);
@@ -432,7 +440,7 @@ async function checkDocument(
         return;
       }
       for (const node of prep.nodes) {
-        findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow }));
+        findings.push(...checkNodes(node, { data: snapshot(), minUi5, allow, distribution }));
       }
       renderable = prep.docs.length > 0 && prep.helperTokens === 0;
       if (prep.helperTokens > 0) {
