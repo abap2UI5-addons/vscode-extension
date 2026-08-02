@@ -16,7 +16,7 @@ import * as tar from "tar";
  */
 
 const BUNDLE_URL =
-  "https://github.com/abap2UI5/abap2UI5-linter/releases/download/render-gate-bundle/view-check-bundle.tgz";
+  "https://github.com/abap2UI5/linter/releases/download/render-gate-bundle/view-check-bundle.tgz";
 
 let installing = false;
 

@@ -102,13 +102,13 @@ empty release body (the workflow falls back to a placeholder).
 Facts an agent cannot see from the code but will trip over:
 
 - **The linter is a git devDependency pinned to a COMMIT in the lockfile.**
-  `"@abap2ui5/linter": "github:abap2UI5/abap2UI5-linter"` resolves in
+  `"@abap2ui5/linter": "github:abap2UI5/linter"` resolves in
   `package-lock.json` to a fixed SHA (as a `git+ssh://` URL — `npm ci` can
   fail in HTTPS-only/tokenless environments, and it pulls the linter's full
   tree: all `@openui5/*` packages plus playwright, hundreds of MB).
   Consequences: a new linter finding type is **invisible in the editor until
   the lock is bumped** — bump deliberately with
-  `npm install @abap2ui5/linter@github:abap2UI5/abap2UI5-linter` and commit
+  `npm install @abap2ui5/linter@github:abap2UI5/linter` and commit
   the lockfile (this has been done by hand before; it is the release lever).
 - **Node versions are mismatched by design debt**: CI pins Node 20
   (`ci.yml`/`release.yml`) while the linter declares `engines >= 22`. npm
@@ -138,9 +138,12 @@ Facts an agent cannot see from the code but will trip over:
   enough to have that module, and do NOT re-implement the JSONC parsing here
   (two copies of the config semantics is exactly the drift this file warns
   about elsewhere).
-- The MCP registration (`src/mcp.ts`) and the view checker still resolve the
-  **pre-rename alias `ai-view-check`** alongside `abap2UI5-linter` (mirrored
-  in ai-mcp's `lib/repos.mjs`) — drop it only in a coordinated change.
+- The MCP registration (`src/mcp.ts`) and the view checker (`src/viewcheck.ts`)
+  both probe checkout directories by name: `linter` (the checker's own
+  repository name) plus the **pre-rename aliases** `abap2UI5-linter` and
+  `ai-view-check`. The same list lives in ai-mcp's `lib/repos.mjs` as
+  `VIEW_CHECK_DIRS` — keep all three in sync, and drop an alias only in a
+  coordinated change.
 
 ## Related repositories
 
@@ -149,5 +152,5 @@ Facts an agent cannot see from the code but will trip over:
 | [abap2UI5](https://github.com/abap2UI5/abap2UI5) | Core framework |
 | [samples](https://github.com/abap2UI5/samples) | Sample applications |
 | [ai-demokit](https://github.com/abap2UI5/ai-demokit) | Ported demo-kit samples — where this extension used to live, until 0.6.0 |
-| [abap2UI5-linter](https://github.com/abap2UI5/abap2UI5-linter) | The view checker behind `src/viewcheck.ts` (SHA-pinned package) and `src/rendergate.ts` (runtime bundle download) |
+| [abap2UI5-linter](https://github.com/abap2UI5/linter) | The view checker behind `src/viewcheck.ts` (SHA-pinned package) and `src/rendergate.ts` (runtime bundle download) |
 | [ai-mcp](https://github.com/abap2UI5/ai-mcp) | The MCP server `src/mcp.ts` registers for MCP clients in the window |

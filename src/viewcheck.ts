@@ -16,7 +16,7 @@ import { installRenderGate, renderGateBrowsers, renderGateCli } from "./renderga
 
 /*
  * Static view validation through abap2UI5-linter
- * (https://github.com/abap2UI5/abap2UI5-linter).
+ * (https://github.com/abap2UI5/linter).
  *
  * The property gate runs INSIDE the extension: the checker library and its
  * UI5 metadata snapshot are bundled, so unknown controls (typos), controls
@@ -228,8 +228,9 @@ function checkerCommand(): CheckerCommand {
   }
   const root = config().get<string>("mcp.reposRoot", "").trim();
   if (root) {
-    // ai-view-check is the checkout's pre-rename directory name
-    for (const dir of ["abap2UI5-linter", "ai-view-check"]) {
+    // `linter` is the checker's own repository name; the two after it are what
+    // a clone made under its earlier names is called (see ai-mcp lib/repos.mjs)
+    for (const dir of ["linter", "abap2UI5-linter", "ai-view-check"]) {
       const cli = path.join(root, dir, "cli.mjs");
       if (fs.existsSync(cli)) {
         return { cmd: "node", args: [cli], env: {}, installed: true };
@@ -238,7 +239,7 @@ function checkerCommand(): CheckerCommand {
   }
   return {
     cmd: "npx",
-    args: ["--yes", "github:abap2UI5/abap2UI5-linter"],
+    args: ["--yes", "github:abap2UI5/linter"],
     env: {},
     installed: false,
   };
