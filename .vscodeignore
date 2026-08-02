@@ -1,6 +1,7 @@
 .vscode/**
 .github/**
 src/**
+scripts/**
 AGENTS.md
 node_modules/**
 esbuild.js

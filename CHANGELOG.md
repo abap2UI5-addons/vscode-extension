@@ -7,14 +7,15 @@
   now runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
   gates and shows the findings in the Problems panel: controls that do
   not exist in UI5 at all (`sap.m.Shell2` - a typo, shown as an error),
-  controls or properties newer than your UI5 floor (default 1.71),
-  deprecated controls, and - optionally, `abap2ui5.viewCheck.render` -
-  real render errors from a headless `XMLView.create`. A typo'd property fails in the
-  editor instead of at runtime in the browser. On demand:
-  *"abap2UI5: Check Views (Static)"*. Configure the floor, accepted
-  deviations and the checker command under `abap2ui5.viewCheck.*`; by
-  default the checker is fetched once via npx, or reused from a local
-  checkout under `abap2ui5.mcp.reposRoot`.
+  controls or properties newer than your UI5 floor (default 1.71), and
+  deprecated controls. The property gate and its UI5 metadata snapshot
+  are **bundled with the extension** - zero setup, instant, works
+  offline, on documents from the ABAP remote filesystem (`adt` scheme)
+  and on unsaved buffers. Optionally (`abap2ui5.viewCheck.render`) the
+  external ai-view-check CLI adds real render errors from a headless
+  `XMLView.create`. On demand: *"abap2UI5: Check Views (Static)"*.
+  Configure the floor, accepted deviations and the render-gate command
+  under `abap2ui5.viewCheck.*`.
 - **The abap2UI5 MCP server, offered to every MCP client in the window.**
   The extension registers the
   [ai-mcp](https://github.com/abap2UI5/ai-mcp) server as an MCP server
