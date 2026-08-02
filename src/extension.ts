@@ -3,6 +3,8 @@ import * as path from "path";
 import { URL } from "url";
 import { AdtClassState, AdtStatusError, SapProxy } from "./proxy";
 import { createNonce, previewHtml, shortUrl, welcomeHtml } from "./webview";
+import { registerMcp } from "./mcp";
+import { registerViewCheck } from "./viewcheck";
 
 const CONFIG_SECTION = "abap2ui5";
 const TEMPLATE_KEY = "launchUrlTemplate";
@@ -852,6 +854,9 @@ export function activate(context: vscode.ExtensionContext): void {
       )
     )
   );
+
+  registerViewCheck(context, log);
+  registerMcp(context, log);
 }
 
 const APP_TEMPLATE = `CLASS zcl_my_app DEFINITION PUBLIC.

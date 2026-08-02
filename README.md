@@ -29,6 +29,14 @@ tying the extension to a system is the launch URL you configure once.
   clicking it reloads the preview.
 - **Login without a 401** – For the embedded view the extension ships a local
   auth proxy (see below).
+- **Static view checks** – Saving a class that builds views with
+  `z2ui5_cl_ai_xml` (or a raw `*.view.xml`) validates the view against the
+  UI5 metadata: too-new or deprecated controls and properties land in the
+  Problems panel before the app ever reaches a system. See
+  [Static view checks](#static-view-checks-abap2ui5viewcheck).
+- **The abap2UI5 MCP server for AI agents** – Copilot agent mode (and every
+  other MCP client in the window) gets the abap2UI5 dev loop without an SAP
+  system. See [MCP server](#mcp-server-abap2ui5mcp).
 - **Snippets** for ABAP files: `z2ui5app`, `z2ui5button`.
 - **Insert an app template** – Class skeleton for a new abap2UI5 app.
 
@@ -116,6 +124,57 @@ The key is only taken over for ABAP objects opened from a system (scheme
 > The predecessor `abap2ui5.reloadOnSave` still works while `abap2ui5.reloadOn`
 > is unset: `false` behaves like `never`, `true` like `save`.
 
+## Static view checks (`abap2ui5.viewCheck.*`)
+
+abap2UI5 views are built as strings — a typo'd property or a control newer
+than your system's UI5 version normally fails at runtime in the browser. The
+extension runs the [ai-view-check](https://github.com/abap2UI5/ai-view-check)
+gates instead, in the editor:
+
+- **Property gate** — every control and property written in the view is
+  resolved against a UI5 metadata snapshot. Anything newer than the
+  configured UI5 floor (default **1.71**) or deprecated becomes a warning in
+  the Problems panel.
+- **Render gate** (optional, `abap2ui5.viewCheck.render`) — the view is
+  loaded with a real `XMLView.create` in headless Chromium, so unknown
+  controls, broken expression bindings and type violations fail too. Needs
+  `npx playwright install chromium` once in the checker's environment.
+
+Checked are ABAP classes building views with the generic `z2ui5_cl_ai_xml`
+builder and raw `*.view.xml` / `*.fragment.xml` files — on every save
+(`abap2ui5.viewCheck.onSave`) and on demand with *"abap2UI5: Check Views
+(Static)"*.
+
+The checker itself is not bundled: by default it is fetched once with
+`npx --yes github:abap2UI5/ai-view-check` (cached by npm afterwards). With a
+local checkout — for example next to the other repos under
+`abap2ui5.mcp.reposRoot` — the extension uses that instead, and
+`abap2ui5.viewCheck.command` overrides the command entirely.
+
+## MCP server (`abap2ui5.mcp.*`)
+
+The extension offers the [abap2UI5 MCP server](https://github.com/abap2UI5/ai-mcp)
+to every MCP client in the VS Code window — GitHub Copilot agent mode, Claude
+Code, or any other extension speaking MCP (VS Code 1.101+). The server gives
+an AI agent the full abap2UI5 development loop **without an SAP system**:
+
+| MCP tool | What the agent gets |
+| --- | --- |
+| `capabilities` | What abap2UI5 can express — the verified capability map |
+| `validate_view` | The static gates above, in seconds |
+| `deploy_app` | Write an app class into the local sandbox, abaplint it |
+| `build_backend` | Transpile framework + apps to the Node backend |
+| `run_app` | Boot the app headless, return errors **and a screenshot** |
+
+The server orchestrates local checkouts of `abap2UI5` and
+[`ai-demokit`](https://github.com/abap2UI5/ai-demokit) (plus optionally
+`ai-view-check` and `ai-mcp` itself). Clone them into one folder and point
+`abap2ui5.mcp.reposRoot` at it — the extension passes the matching
+`A2UI5_HOME` / `AI_DEMOKIT_HOME` / `AI_VIEW_CHECK_HOME` variables to the
+server and prefers the local `ai-mcp` checkout over downloading via npx.
+The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
+`abap2ui5.mcp.enabled: false` removes it.
+
 ## Settings
 
 | Setting | Default | Meaning |
@@ -123,6 +182,14 @@ The key is only taken over for ABAP objects opened from a system (scheme
 | `abap2ui5.launchUrlTemplate` | – | URL template used to launch an app, `{class}` as the placeholder |
 | `abap2ui5.openMode` | `tab` | `tab`, `panel` or `external` |
 | `abap2ui5.reloadOn` | `activation` | When the preview reloads on its own: `activation`, `save` or `never` |
+| `abap2ui5.viewCheck.onSave` | `true` | Run the static view check when a checkable file is saved |
+| `abap2ui5.viewCheck.command` | – | Command running the ai-view-check CLI (empty = local checkout or npx) |
+| `abap2ui5.viewCheck.minUi5` | `1.71` | UI5 floor for the property gate |
+| `abap2ui5.viewCheck.render` | `false` | Also run the headless render gate |
+| `abap2ui5.viewCheck.allow` | `[]` | Accepted deviations, e.g. `sap.m.GenericTile.systemInfo` |
+| `abap2ui5.mcp.enabled` | `true` | Offer the abap2UI5 MCP server to MCP clients |
+| `abap2ui5.mcp.command` | – | Command starting the MCP server (empty = local checkout or npx) |
+| `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `ai-view-check` / `ai-mcp` checkouts |
 
 ## Commands
 
@@ -131,6 +198,7 @@ The key is only taken over for ABAP objects opened from a system (scheme
 | `abap2UI5: Run App (F9)` | Launches the app of the current class |
 | `abap2UI5: Activate and Reload Preview (Ctrl+F3)` | Activates the class through your ABAP tooling, then reloads the preview |
 | `abap2UI5: Reload Preview` | Reloads the app currently shown |
+| `abap2UI5: Check Views (Static)` | Runs the static view check on the current file |
 | `abap2UI5: Set Launch URL` | Sets (or changes) the launch URL template |
 | `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
 | `abap2UI5: Clear Stored SAP Credentials` | Removes user and password from the SecretStorage |
