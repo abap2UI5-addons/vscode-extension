@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.15.0
+
+- **On the VS Code Marketplace.** The extension is published as
+  [`abap2ui5.abap2ui5`](https://marketplace.visualstudio.com/items?itemName=abap2ui5.abap2ui5)
+  — install and update it from the Extensions panel like any other extension.
+  The `.vsix` attached to every GitHub release stays available for offline
+  installs.
+- **The extension ID changed** from `abap2ui5-local.abap2ui5` to
+  `abap2ui5.abap2ui5`: the placeholder publisher gave way to the real
+  Marketplace publisher. A previous `.vsix` install keeps working but is a
+  different extension to VS Code and will not update — uninstall it once
+  (`code --uninstall-extension abap2ui5-local.abap2ui5`) and install from the
+  Marketplace. Settings are kept (they live in `settings.json`); the stored
+  SAP credentials are scoped to the extension ID, so they are asked for once
+  again.
+
 ## 0.14.0
 
 - **Completion and hover for every UI5 control and property.** The extension

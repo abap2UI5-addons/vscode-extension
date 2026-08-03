@@ -326,24 +326,30 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 
 ## Installation
 
-The extension is distributed as a `.vsix` (not on the Marketplace yet).
-Download the file from the
-[latest release](https://github.com/abap2UI5/vscode-extension/releases/latest)
-— or build it yourself, see *Packaging* below.
-
-**Through the UI:** Extensions panel (`Ctrl/Cmd + Shift + X`) → `…` menu →
-**Install from VSIX…** → pick the file.
-
-**Through the terminal:**
+Install **abap2UI5** from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=abap2ui5.abap2ui5):
+Extensions panel (`Ctrl/Cmd + Shift + X`) → search for *abap2UI5* →
+**Install**. Updates arrive automatically like for any other extension.
+Through the terminal:
 
 ```bash
-code --install-extension abap2ui5-0.9.3.vsix
+code --install-extension abap2ui5.abap2ui5
 ```
 
-**Updating** means building a new `.vsix` with a higher version number and
-installing it again.
+On [Open VSX](https://open-vsx.org/extension/abap2ui5/abap2ui5) for
+VSCodium, Eclipse Theia, SAP Business Application Studio and friends.
 
-**Uninstalling:** Extensions panel → find the extension → **Uninstall**. Or:
+**Without Marketplace access:** every
+[release](https://github.com/abap2UI5/vscode-extension/releases/latest)
+carries the `.vsix` — Extensions panel → `…` menu → **Install from
+VSIX…** — or build it yourself, see *Packaging* below.
+
+**Coming from a pre-Marketplace `.vsix` install?** Those builds used the
+placeholder publisher `abap2ui5-local`, which makes them a different
+extension to VS Code — they keep working but never update. Uninstall once
+(Extensions panel → **Uninstall**, or the command below), then install from
+the Marketplace. Settings are kept; the stored SAP credentials are asked
+for once again.
 
 ```bash
 code --uninstall-extension abap2ui5-local.abap2ui5
