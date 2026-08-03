@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 import { AdtClassState, AdtStatusError, SapProxy } from "./proxy";
-import { createNonce, previewHtml, shortUrl, welcomeHtml } from "./webview";
+import {
+  createNonce,
+  OpenMode,
+  previewHtml,
+  shortUrl,
+  welcomeHtml,
+} from "./webview";
 import { registerMcp } from "./mcp";
 import { registerRenderGate } from "./rendergate";
 import { registerViewCheck } from "./viewcheck";
@@ -130,6 +136,14 @@ function hasLaunchUrl(): boolean {
   return allSystems().length > 0;
 }
 
+/** Where F9 opens the app. Only `panel` fills the panel view. */
+function openMode(): OpenMode {
+  const value = vscode.workspace
+    .getConfiguration(CONFIG_SECTION)
+    .get<string>(OPEN_MODE_KEY, "tab");
+  return value === "panel" || value === "external" ? value : "tab";
+}
+
 // ---------------------------------------------------------------------------
 // Panel view (bottom)
 // ---------------------------------------------------------------------------
@@ -173,11 +187,21 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
     return !!this.view && this.previewRendered;
   }
 
-  /** Re-renders the empty state, e.g. after the launch URL was configured. */
+  /**
+   * Re-renders the empty state — after the launch URL was configured, and
+   * whenever the app it points at moves (launched into a tab, tab closed),
+   * because that is what the text on it talks about.
+   */
   refreshWelcome(): void {
     if (this.view && !this.previewRendered) {
       this.render();
     }
+  }
+
+  /** Hands the app over to the tab: back to the empty state, no reload. */
+  clear(): void {
+    this.target = undefined;
+    this.render();
   }
 
   private render(reason?: string): void {
@@ -189,6 +213,10 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
       view.webview.html = welcomeHtml({
         nonce: createNonce(),
         hasLaunchUrl: hasLaunchUrl(),
+        openMode: openMode(),
+        // Only a real tab is offered as a place to go to - `external` opened
+        // a browser this extension no longer has a handle on.
+        runningClass: appPanel ? currentTarget?.className : undefined,
       });
       this.previewRendered = false;
       return;
@@ -363,6 +391,8 @@ function showInTab(context: vscode.ExtensionContext, target: AppTarget): void {
     appPanel = undefined;
     currentTarget = undefined;
     updateStatusItem();
+    // The panel view's empty state names the app running in the tab.
+    previewProvider?.refreshWelcome();
   });
   // If the loading app grabs focus shortly after F9, hand it back to the code.
   appPanel.onDidChangeViewState((e) => {
@@ -379,6 +409,48 @@ function showInTab(context: vscode.ExtensionContext, target: AppTarget): void {
     language: language(),
     nonce: createNonce(),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Moving the preview between tab and panel
+// ---------------------------------------------------------------------------
+
+/**
+ * Switches where F9 opens an app and takes the running one along.
+ *
+ * Both halves matter: changing the setting alone leaves the app where it is,
+ * which is exactly the dead end the panel's empty state used to be — the view
+ * sat there explaining F9 while F9 filled a tab somewhere else.
+ */
+async function movePreview(
+  provider: PreviewViewProvider,
+  to: "tab" | "panel"
+): Promise<void> {
+  await vscode.workspace
+    .getConfiguration(CONFIG_SECTION)
+    .update(OPEN_MODE_KEY, to, vscode.ConfigurationTarget.Global);
+
+  // Disposing the tab clears `currentTarget` through its dispose handler. The
+  // app is not gone, it changes place, so it is put back afterwards.
+  const target = currentTarget;
+
+  if (to === "panel") {
+    appPanel?.dispose();
+    currentTarget = target;
+    updateStatusItem();
+    if (target) {
+      await provider.show(target, "Moved into the panel");
+    } else {
+      provider.refreshWelcome();
+    }
+    return;
+  }
+
+  provider.clear();
+  if (target && ctx) {
+    showInTab(ctx, target);
+  }
+  provider.refreshWelcome();
 }
 
 // ---------------------------------------------------------------------------
@@ -441,13 +513,11 @@ async function runApp(
     return;
   }
 
-  const openMode = vscode.workspace
-    .getConfiguration(CONFIG_SECTION)
-    .get<string>(OPEN_MODE_KEY, "tab");
+  const mode = openMode();
 
   await rememberApp(context, className);
 
-  if (openMode === "external") {
+  if (mode === "external") {
     await vscode.env.openExternal(vscode.Uri.parse(externalUrl));
     return;
   }
@@ -488,10 +558,11 @@ async function runApp(
   currentTarget = { className, frameUrl, externalUrl, system: system.name };
   updateStatusItem();
 
-  if (openMode === "panel") {
+  if (mode === "panel") {
     await provider.show(currentTarget);
   } else {
     showInTab(context, currentTarget);
+    provider.refreshWelcome();
   }
   captureActivationBaseline();
 
@@ -883,6 +954,27 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("abap2ui5.activate", () =>
       activateAndReload(provider)
     ),
+    vscode.commands.registerCommand("abap2ui5.previewInPanel", () =>
+      movePreview(provider, "panel")
+    ),
+    vscode.commands.registerCommand("abap2ui5.previewInTab", () =>
+      movePreview(provider, "tab")
+    ),
+    // Where the app is depends on the open mode, so "show me the app" is a
+    // command rather than something the user has to go looking for.
+    vscode.commands.registerCommand("abap2ui5.revealApp", async () => {
+      if (appPanel) {
+        appPanel.reveal(vscode.ViewColumn.Beside, false);
+        return;
+      }
+      if (provider.isShowing) {
+        await vscode.commands.executeCommand(`${PreviewViewProvider.viewId}.focus`);
+        return;
+      }
+      vscode.window.showInformationMessage(
+        "abap2UI5: no app is running yet - press F9 in an app class."
+      );
+    }),
     // Launching does not need the class open: after the first F9 the app is
     // one command away from anywhere, which is what a preview next to a test
     // or a helper class actually needs.
@@ -935,7 +1027,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (
         e.affectsConfiguration(`${CONFIG_SECTION}.${TEMPLATE_KEY}`) ||
-        e.affectsConfiguration(`${CONFIG_SECTION}.systems`)
+        e.affectsConfiguration(`${CONFIG_SECTION}.systems`) ||
+        // The empty state says where F9 opens the app - that is this setting.
+        e.affectsConfiguration(`${CONFIG_SECTION}.${OPEN_MODE_KEY}`)
       ) {
         provider.refreshWelcome();
       }
