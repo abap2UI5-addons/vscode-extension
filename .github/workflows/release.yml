@@ -1,7 +1,9 @@
 name: Release
 
 # Two ways to release, both ending in a tagged GitHub release with the
-# .vsix attached:
+# .vsix attached — and, when the tokens are configured as secrets, the
+# same .vsix published to the VS Code Marketplace (VSCE_PAT) and Open VSX
+# (OVSX_PAT):
 #
 #   - Actions → Release → "Run workflow": tags the current commit with
 #     v<version from package.json> and releases it.
@@ -101,3 +103,38 @@ jobs:
           gh release create "${{ steps.meta.outputs.tag }}" "${{ steps.meta.outputs.vsix }}" \
             --title "abap2UI5 ${{ steps.meta.outputs.version }}" \
             --notes-file release-notes.md
+
+      # The secrets context is not reliably available in step-level `if`,
+      # so turn "is the token configured" into step outputs first. A publish
+      # step whose token is missing is skipped (with a notice), so a release
+      # still works before the marketplace accounts exist.
+      - name: Check which publish tokens are configured
+        id: tokens
+        run: |
+          echo "vsce=${{ secrets.VSCE_PAT != '' }}" >> "$GITHUB_OUTPUT"
+          echo "ovsx=${{ secrets.OVSX_PAT != '' }}" >> "$GITHUB_OUTPUT"
+          if [ "${{ secrets.VSCE_PAT != '' }}" != "true" ]; then
+            echo "::notice::VSCE_PAT secret not configured - skipping the VS Code Marketplace publish"
+          fi
+          if [ "${{ secrets.OVSX_PAT != '' }}" != "true" ]; then
+            echo "::notice::OVSX_PAT secret not configured - skipping the Open VSX publish"
+          fi
+
+      # Publish the same .vsix to the VS Code Marketplace. VSCE_PAT is an
+      # Azure DevOps personal access token with the "Marketplace → Manage"
+      # scope for the abap2ui5 publisher, see
+      # https://code.visualstudio.com/api/working-with-extensions/publishing-extension
+      - name: Publish to the VS Code Marketplace
+        if: steps.tokens.outputs.vsce == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --packagePath "${{ steps.meta.outputs.vsix }}"
+
+      # Same for Open VSX (VSCodium, Theia, SAP Business Application Studio
+      # and friends). OVSX_PAT is a token from open-vsx.org for the abap2ui5
+      # namespace.
+      - name: Publish to Open VSX
+        if: steps.tokens.outputs.ovsx == 'true'
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx publish "${{ steps.meta.outputs.vsix }}" -p "$OVSX_PAT"

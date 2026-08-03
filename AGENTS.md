@@ -88,6 +88,15 @@ using that version's changelog section as the release notes. **The changelog hea
 notes are extracted by matching that line, and a mismatch silently produces an
 empty release body (the workflow falls back to a placeholder).
 
+After the GitHub release, the same `.vsix` is published to the **VS Code
+Marketplace** (as `abap2ui5.abap2ui5`) and to **Open VSX**. Each publish step
+runs only when its token is configured as a repository secret and is skipped
+with a notice otherwise: `VSCE_PAT` is an Azure DevOps personal access token
+with the "Marketplace → Manage" scope for the `abap2ui5` publisher,
+`OVSX_PAT` a token from open-vsx.org for the `abap2ui5` namespace. Do not
+rename the `name` or `publisher` fields — together they are the Marketplace
+identity (see Conventions).
+
 ## Conventions
 
 - **Keep the manifest and the code in sync.** Every command registered with
