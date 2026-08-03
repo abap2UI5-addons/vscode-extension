@@ -8,18 +8,16 @@
  * variables, so they follow the user's colour theme (light, dark, contrast).
  */
 
-import { URL } from "url";
+import { randomBytes } from "crypto";
 
-const NONCE_CHARS =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+export { shortUrl } from "./urls";
+import { shortUrl } from "./urls";
 
-/** Random nonce so the webview CSP can allow exactly our own script/style. */
+/** Random nonce so the webview CSP can allow exactly our own script/style.
+ *  A nonce is a security token, so it comes from the crypto RNG - Math.random
+ *  is predictable enough to be worth not relying on here. */
 export function createNonce(): string {
-  let out = "";
-  for (let i = 0; i < 32; i++) {
-    out += NONCE_CHARS.charAt(Math.floor(Math.random() * NONCE_CHARS.length));
-  }
-  return out;
+  return randomBytes(24).toString("base64url");
 }
 
 export function escapeHtml(value: string): string {
@@ -30,14 +28,52 @@ export function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** `https://host:44300/sap/bc/z2ui5?app_start=X` -> `host:44300/sap/bc/z2ui5` */
-export function shortUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.host + parsed.pathname;
-  } catch {
-    return url;
-  }
+/*
+ * The UI5 themes a preview can be switched to, and the logon languages the
+ * picker offers. Both travel as ordinary URL parameters (`sap-ui-theme`,
+ * `sap-language`), which is why this costs nothing but a reload: checking an
+ * app in dark mode or in a second language is otherwise a trip to the
+ * browser with a hand-edited URL.
+ */
+export const THEMES: ReadonlyArray<[value: string, label: string]> = [
+  ["", "System theme"],
+  ["sap_horizon", "Horizon"],
+  ["sap_horizon_dark", "Horizon Dark"],
+  ["sap_horizon_hcb", "Horizon HC Black"],
+  ["sap_horizon_hcw", "Horizon HC White"],
+  ["sap_fiori_3", "Quartz (Fiori 3)"],
+  ["sap_fiori_3_dark", "Quartz Dark"],
+  ["sap_belize", "Belize"],
+];
+
+export const LANGUAGES: ReadonlyArray<[value: string, label: string]> = [
+  ["", "Logon language"],
+  ["EN", "English"],
+  ["DE", "German"],
+  ["FR", "French"],
+  ["ES", "Spanish"],
+  ["IT", "Italian"],
+  ["PT", "Portuguese"],
+  ["NL", "Dutch"],
+  ["PL", "Polish"],
+  ["RU", "Russian"],
+  ["ZH", "Chinese"],
+  ["JA", "Japanese"],
+];
+
+/** `<option>` list with the current value pre-selected. */
+function optionList(
+  entries: ReadonlyArray<[string, string]>,
+  current: string
+): string {
+  return entries
+    .map(
+      ([value, label]) =>
+        `<option value="${escapeHtml(value)}"${
+          value === current ? " selected" : ""
+        }>${escapeHtml(label)}</option>`
+    )
+    .join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -112,12 +148,15 @@ export interface PreviewOptions {
   externalUrl: string;
   /** Class name of the app, shown as the title. */
   className: string;
+  /** `sap-ui-theme` currently in force, "" for the system default. */
+  theme: string;
+  /** `sap-language` currently in force, "" for the logon language. */
+  language: string;
   nonce: string;
 }
 
 export function previewHtml(options: PreviewOptions): string {
   const { nonce } = options;
-  const frameUrl = escapeHtml(options.frameUrl);
   const externalUrl = escapeHtml(options.externalUrl);
   const className = escapeHtml(options.className);
   const urlLabel = escapeHtml(shortUrl(options.externalUrl));
@@ -201,6 +240,22 @@ ${BASE_CSS}
     color: var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
     background: var(--vscode-inputOption-activeBackground, rgba(0,120,212,0.25));
     border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder));
+  }
+
+  select {
+    font: inherit;
+    font-size: 0.9em;
+    flex: none;
+    max-width: 130px;
+    padding: 2px 4px;
+    border-radius: 5px;
+    color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+    background: var(--vscode-dropdown-background, transparent);
+    border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border, transparent));
+  }
+  select:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
   }
 
   .act { padding: 4px 7px; opacity: 0.8; flex: none; }
@@ -299,6 +354,14 @@ ${BASE_CSS}
       <button id="d-tablet" data-device="tablet" aria-pressed="false" title="Tablet width (834px)">${icon("tablet")}</button>
       <button id="d-phone" data-device="phone" aria-pressed="false" title="Phone width (414px)">${icon("phone")}</button>
     </div>
+    <select id="theme" title="UI5 theme (sap-ui-theme)" aria-label="UI5 theme">${optionList(
+      THEMES,
+      options.theme
+    )}</select>
+    <select id="language" title="Logon language (sap-language)" aria-label="Logon language">${optionList(
+      LANGUAGES,
+      options.language
+    )}</select>
     <button class="act" id="reload" title="Reload the app">${icon("refresh")}</button>
     <button class="act" id="ext" title="Open in the default browser">${icon("external")}</button>
   </div>
@@ -401,6 +464,17 @@ ${BASE_CSS}
     btn.addEventListener('click', () => setDevice(btn.dataset.device, true));
   }
 
+  // Theme and language are URL parameters of the app, so the host owns them:
+  // it rewrites both URLs and sends the reload back as a normal 'load'.
+  const themeEl = document.getElementById('theme');
+  const languageEl = document.getElementById('language');
+  themeEl.addEventListener('change', () => {
+    vscodeApi.postMessage({ type: 'param', name: 'theme', value: themeEl.value });
+  });
+  languageEl.addEventListener('change', () => {
+    vscodeApi.postMessage({ type: 'param', name: 'language', value: languageEl.value });
+  });
+
   // Start the app only now: the load listener above is already attached.
   load(frameUrl, 'Starting ' + nameEl.textContent + '\\u2026');
 
@@ -421,6 +495,8 @@ ${BASE_CSS}
     if (msg.className) { nameEl.textContent = msg.className; }
     urlEl.textContent = msg.shortUrl || msg.externalUrl;
     urlEl.title = msg.externalUrl;
+    if (typeof msg.theme === 'string') { themeEl.value = msg.theme; }
+    if (typeof msg.language === 'string') { languageEl.value = msg.language; }
     load(frameUrl, (switched ? 'Starting ' : 'Reloading ') + nameEl.textContent + '\\u2026');
     if (msg.reason) { showToast(msg.reason); }
   });
@@ -525,7 +601,9 @@ ${BASE_CSS}
       <li><span class="num">3</span><span>Activate the class with <kbd>Ctrl+F3</kbd> &mdash; the preview reloads on its own. A save alone leaves the server on the active version, so it does not reload.</span></li>
     </ol>
     <div class="actions">
-      <button data-command="abap2ui5.setLaunchUrl">${icon("link")}Set launch URL</button>
+      <button data-command="${
+        hasLaunchUrl ? "abap2ui5.selectSystem" : "abap2ui5.setLaunchUrl"
+      }">${icon("link")}${hasLaunchUrl ? "Choose system" : "Set launch URL"}</button>
       <button class="secondary" data-command="abap2ui5.newApp">${icon("code")}Insert app template</button>
       <button class="secondary" data-command="abap2ui5.openHomepage">${icon("book")}Project on GitHub</button>
     </div>

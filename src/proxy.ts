@@ -26,11 +26,26 @@ export interface AdtClassState {
  * /sap/bc/ui5_ui5 and so on), since the iframe sends root-relative paths to
  * the proxy automatically.
  */
+/** What the system answered to one forwarded request. */
+export interface ProxyResponse {
+  status: number;
+  /** Request path, for the log line. */
+  path: string;
+}
+
 export class SapProxy {
   private server?: http.Server;
   private port?: number;
   private target?: URL;
   private authHeader?: string;
+
+  /**
+   * Called for every answer the system gives. The proxy is the only place
+   * that sees them: inside the iframe a 401 is just a blank or unhelpful
+   * page, and the extension used to have nothing to say about it. The host
+   * uses this to turn a rejected logon into an actionable message.
+   */
+  onResponse?: (response: ProxyResponse) => void;
 
   /** Starts the proxy (or just refreshes auth if the target stays the same). */
   async start(targetOrigin: string, user: string, pass: string): Promise<number> {
@@ -175,6 +190,10 @@ export class SapProxy {
     };
 
     const proxyReq = mod.request(options, (proxyRes) => {
+      this.onResponse?.({
+        status: proxyRes.statusCode ?? 0,
+        path: String(req.url ?? ""),
+      });
       const outHeaders: http.OutgoingHttpHeaders = { ...proxyRes.headers };
 
       // Allow framing: otherwise the server forbids embedding via

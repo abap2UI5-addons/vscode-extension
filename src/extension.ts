@@ -1,11 +1,23 @@
 import * as vscode from "vscode";
-import * as path from "path";
-import { URL } from "url";
 import { AdtClassState, AdtStatusError, SapProxy } from "./proxy";
 import { createNonce, previewHtml, shortUrl, welcomeHtml } from "./webview";
 import { registerMcp } from "./mcp";
 import { registerRenderGate } from "./rendergate";
 import { registerViewCheck } from "./viewcheck";
+import { registerQuickFix } from "./quickfix";
+import { registerLanguageFeatures } from "./language";
+import { registerCodeLens } from "./codelens";
+import { classNameOf, isAppClass } from "./abap";
+import { expandTemplate, originOf, sapClientOf, withParams } from "./urls";
+import {
+  allSystems,
+  askForTemplate,
+  clearCredentials,
+  ensureCredentials,
+  ensureSystem,
+  pickSystem,
+  SystemProfile,
+} from "./systems";
 
 const CONFIG_SECTION = "abap2ui5";
 const TEMPLATE_KEY = "launchUrlTemplate";
@@ -14,32 +26,31 @@ const RELOAD_KEY = "reloadOn";
 /** Replaced by `reloadOn` in 0.9.0, still honoured while it is set. */
 const LEGACY_RELOAD_KEY = "reloadOnSave";
 
-const SECRET_USER = "abap2ui5.user";
-const SECRET_PASS = "abap2ui5.pass";
-
-/** Must appear in the class for F9 to launch the app. */
-const APP_INTERFACE_RE = /interfaces\s+z2ui5_if_app/i;
-
-/** Collapses duplicate slashes in the path but leaves `://` in the protocol intact. */
-function normalizeUrl(url: string): string {
-  return url.replace(/(?<!:)\/{2,}/g, "/");
-}
+/** Preview parameters and the recently launched apps live in the window's
+ *  state: two windows may well look at two systems in two themes. */
+const THEME_STATE = "abap2ui5.theme";
+const LANGUAGE_STATE = "abap2ui5.language";
+const RECENT_STATE = "abap2ui5.recentApps";
+const RECENT_MAX = 10;
 
 /** Everything needed to show (and later reload) one app. */
 interface AppTarget {
   className: string;
   frameUrl: string;
   externalUrl: string;
+  system: string;
 }
 
 /** Message posted into a preview webview to (re)load an app. */
-function loadMessage(target: AppTarget, reason?: string) {
+function loadMessage(target: AppTarget, theme: string, language: string, reason?: string) {
   return {
     type: "load" as const,
     className: target.className,
     frameUrl: target.frameUrl,
     externalUrl: target.externalUrl,
     shortUrl: shortUrl(target.externalUrl),
+    theme,
+    language,
     reason,
   };
 }
@@ -76,11 +87,47 @@ function reloadTrigger(): ReloadTrigger {
   return "activation";
 }
 
+// ---------------------------------------------------------------------------
+// Module state
+// ---------------------------------------------------------------------------
+
+let appPanel: vscode.WebviewPanel | undefined;
+
+/** App currently shown (tab or panel) — the target of reload-on-save. */
+let currentTarget: AppTarget | undefined;
+
+let statusItem: vscode.StatusBarItem | undefined;
+
+let output: vscode.OutputChannel | undefined;
+
+/** The extension context, for the pieces reached outside command scope. */
+let ctx: vscode.ExtensionContext | undefined;
+
+/** Writes to the "abap2UI5" output channel (View → Output). */
+function log(message: string): void {
+  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+  output?.appendLine(`${stamp}  ${message}`);
+}
+
+function theme(): string {
+  return ctx?.workspaceState.get<string>(THEME_STATE, "") ?? "";
+}
+
+function language(): string {
+  return ctx?.workspaceState.get<string>(LANGUAGE_STATE, "") ?? "";
+}
+
+/** The launch URL of one class on one system, with the preview's theme and
+ *  language applied — both are ordinary URL parameters of the app. */
+function urlFor(system: SystemProfile, className: string): string {
+  return withParams(expandTemplate(system.template, className), {
+    "sap-ui-theme": theme() || undefined,
+    "sap-language": language() || undefined,
+  });
+}
+
 function hasLaunchUrl(): boolean {
-  return !!vscode.workspace
-    .getConfiguration(CONFIG_SECTION)
-    .get<string>(TEMPLATE_KEY, "")
-    .trim();
+  return allSystems().length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +158,7 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
   /** Reloads the app already shown, without stealing the focus. */
   reload(reason?: string): void {
     if (this.target) {
-      this.post(loadMessage(this.target, reason));
+      this.post(loadMessage(this.target, theme(), language(), reason));
     }
   }
 
@@ -147,10 +194,17 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     if (!this.previewRendered) {
-      view.webview.html = previewHtml({ ...this.target, nonce: createNonce() });
+      view.webview.html = previewHtml({
+        ...this.target,
+        theme: theme(),
+        language: language(),
+        nonce: createNonce(),
+      });
       this.previewRendered = true;
     } else {
-      void view.webview.postMessage(loadMessage(this.target, reason));
+      void view.webview.postMessage(
+        loadMessage(this.target, theme(), language(), reason)
+      );
     }
   }
 }
@@ -158,21 +212,6 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
 // ---------------------------------------------------------------------------
 // Tab (editor area)
 // ---------------------------------------------------------------------------
-
-let appPanel: vscode.WebviewPanel | undefined;
-
-/** App currently shown (tab or panel) — the target of reload-on-save. */
-let currentTarget: AppTarget | undefined;
-
-let statusItem: vscode.StatusBarItem | undefined;
-
-let output: vscode.OutputChannel | undefined;
-
-/** Writes to the "abap2UI5" output channel (View → Output). */
-function log(message: string): void {
-  const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
-  output?.appendLine(`${stamp}  ${message}`);
-}
 
 function updateStatusItem(): void {
   if (!statusItem) {
@@ -184,7 +223,8 @@ function updateStatusItem(): void {
   }
   statusItem.text = `$(play-circle) ${currentTarget.className}`;
   statusItem.tooltip = new vscode.MarkdownString(
-    `**abap2UI5 preview**\n\n${currentTarget.externalUrl}\n\nClick to reload.`
+    `**abap2UI5 preview** — ${currentTarget.system}\n\n` +
+      `${currentTarget.externalUrl}\n\nClick to reload.`
   );
   statusItem.show();
 }
@@ -203,14 +243,69 @@ function reloadShownApp(provider: PreviewViewProvider, reason?: string): void {
     return;
   }
   stopActivationWatch(); // whatever loads now is current, the badge clears
-  postToShownApp(provider, loadMessage(currentTarget, reason));
+  postToShownApp(
+    provider,
+    loadMessage(currentTarget, theme(), language(), reason)
+  );
   captureActivationBaseline(); // remember which state is shown from now on
 }
 
+/**
+ * Applies a changed theme or language: both are URL parameters, so the app's
+ * URLs are rebuilt and the preview reloads onto them.
+ */
+async function applyPreviewParam(
+  provider: PreviewViewProvider,
+  name: "theme" | "language",
+  value: string
+): Promise<void> {
+  if (!ctx) {
+    return;
+  }
+  await ctx.workspaceState.update(
+    name === "theme" ? THEME_STATE : LANGUAGE_STATE,
+    value
+  );
+  if (!currentTarget) {
+    return;
+  }
+  const system = allSystems().find((s) => s.name === currentTarget!.system);
+  if (!system) {
+    return;
+  }
+  const externalUrl = urlFor(system, currentTarget.className);
+  const origin = originOf(externalUrl);
+  const frameUrl =
+    origin && proxyRef?.isRunning
+      ? externalUrl.replace(origin, proxyRef.origin)
+      : externalUrl;
+  currentTarget = { ...currentTarget, externalUrl, frameUrl };
+  updateStatusItem();
+  reloadShownApp(
+    provider,
+    name === "theme"
+      ? value
+        ? `Theme: ${value}`
+        : "Theme: system default"
+      : value
+        ? `Language: ${value}`
+        : "Logon language"
+  );
+}
+
+let previewProvider: PreviewViewProvider | undefined;
+
 function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void {
-  const message = msg as { type?: string; command?: string } | undefined;
+  const message = msg as
+    | { type?: string; command?: string; name?: string; value?: string }
+    | undefined;
   if (message?.type === "openExternal" && target) {
     void vscode.env.openExternal(vscode.Uri.parse(target.externalUrl));
+    return;
+  }
+  if (message?.type === "param" && previewProvider) {
+    const name = message.name === "language" ? "language" : "theme";
+    void applyPreviewParam(previewProvider, name, message.value ?? "");
     return;
   }
   if (message?.type === "command" && message.command?.startsWith(`${CONFIG_SECTION}.`)) {
@@ -249,7 +344,9 @@ function showInTab(context: vscode.ExtensionContext, target: AppTarget): void {
     // Existing tab: just reload (or switch to the new class).
     appPanel.title = title;
     appPanel.reveal(vscode.ViewColumn.Beside, true);
-    void appPanel.webview.postMessage(loadMessage(target));
+    void appPanel.webview.postMessage(
+      loadMessage(target, theme(), language())
+    );
     return;
   }
   appPanel = vscode.window.createWebviewPanel(
@@ -276,136 +373,79 @@ function showInTab(context: vscode.ExtensionContext, target: AppTarget): void {
   appPanel.webview.onDidReceiveMessage((msg) =>
     handleWebviewMessage(msg, currentTarget)
   );
-  appPanel.webview.html = previewHtml({ ...target, nonce: createNonce() });
+  appPanel.webview.html = previewHtml({
+    ...target,
+    theme: theme(),
+    language: language(),
+    nonce: createNonce(),
+  });
 }
 
 // ---------------------------------------------------------------------------
-// Helper
+// Recently launched apps
 // ---------------------------------------------------------------------------
 
-function resolveClassName(doc: vscode.TextDocument): string {
-  const match = doc.getText().match(/class\s+(\S+)\s+definition/i);
-  const raw = match
-    ? match[1]
-    : path
-        .basename(doc.fileName)
-        .replace(/\.clas\.abap$/i, "")
-        .replace(/\.abap$/i, "");
-  return raw.toUpperCase();
+function recentApps(context: vscode.ExtensionContext): string[] {
+  return context.workspaceState.get<string[]>(RECENT_STATE, []) ?? [];
 }
 
-/** Asks for the launch URL and stores it. Returns the stored template. */
-async function askForTemplate(current: string): Promise<string | undefined> {
-  const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
-  const answer = (
-    (await vscode.window.showInputBox({
-      title: "abap2UI5: Set launch URL",
-      prompt: "URL template with {class} as the placeholder",
-      value:
-        current ||
-        "https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100",
-      ignoreFocusOut: true,
-      validateInput: (value) => {
-        const trimmed = value.trim();
-        if (!trimmed) {
-          return "The launch URL must not be empty.";
-        }
-        if (!/\{class\}/i.test(trimmed)) {
-          return "The URL needs the {class} placeholder.";
-        }
-        try {
-          new URL(trimmed);
-        } catch {
-          return "That is not a valid URL.";
-        }
-        return undefined;
-      },
-    })) ?? ""
-  ).trim();
-  if (!answer) {
-    return undefined;
-  }
-  await cfg.update(TEMPLATE_KEY, answer, vscode.ConfigurationTarget.Global);
-  return answer;
-}
-
-async function ensureTemplate(): Promise<string | undefined> {
-  const tpl = vscode.workspace
-    .getConfiguration(CONFIG_SECTION)
-    .get<string>(TEMPLATE_KEY, "")
-    .trim();
-  return tpl || (await askForTemplate(""));
-}
-
-async function ensureCredentials(
-  context: vscode.ExtensionContext
-): Promise<{ user: string; pass: string } | undefined> {
-  const secrets = context.secrets;
-  let user = await secrets.get(SECRET_USER);
-  let pass = await secrets.get(SECRET_PASS);
-
-  if (!user) {
-    user = await vscode.window.showInputBox({
-      title: "abap2UI5: SAP user",
-      prompt: "User for logging on to the SAP system (same as in ADT)",
-      ignoreFocusOut: true,
-    });
-    if (!user) {
-      return undefined;
-    }
-    await secrets.store(SECRET_USER, user);
-  }
-
-  if (!pass) {
-    pass = await vscode.window.showInputBox({
-      title: "abap2UI5: SAP password",
-      prompt: "Password (stored securely in the VS Code SecretStorage)",
-      password: true,
-      ignoreFocusOut: true,
-    });
-    if (!pass) {
-      return undefined;
-    }
-    await secrets.store(SECRET_PASS, pass);
-  }
-
-  return { user, pass };
+async function rememberApp(
+  context: vscode.ExtensionContext,
+  className: string
+): Promise<void> {
+  const next = [className, ...recentApps(context).filter((c) => c !== className)];
+  await context.workspaceState.update(RECENT_STATE, next.slice(0, RECENT_MAX));
 }
 
 // ---------------------------------------------------------------------------
 // Command
 // ---------------------------------------------------------------------------
 
+/**
+ * Launches one app. Without a class name it takes the one in the active
+ * editor - and, when that editor holds no abap2UI5 app at all, hands F9 back
+ * to what it normally does so the key is not lost.
+ */
 async function runApp(
   context: vscode.ExtensionContext,
   proxy: SapProxy,
-  provider: PreviewViewProvider
+  provider: PreviewViewProvider,
+  className?: string
 ): Promise<void> {
   const editor = vscode.window.activeTextEditor;
 
-  // Not an ABAP editor or not a z2ui5 app: keep the normal F9 behaviour.
-  if (
-    !editor ||
-    editor.document.languageId !== "abap" ||
-    !APP_INTERFACE_RE.test(editor.document.getText())
-  ) {
-    await vscode.commands.executeCommand("editor.debug.action.toggleBreakpoint");
+  if (!className) {
+    // Not an ABAP editor or not a z2ui5 app: keep the normal F9 behaviour.
+    if (
+      !editor ||
+      editor.document.languageId !== "abap" ||
+      !isAppClass(editor.document.getText())
+    ) {
+      await vscode.commands.executeCommand("editor.debug.action.toggleBreakpoint");
+      return;
+    }
+    className = classNameOf(editor.document.getText(), editor.document.fileName);
+  }
+
+  const system = await ensureSystem(context);
+  if (!system) {
     return;
   }
 
-  const className = resolveClassName(editor.document);
-  const template = await ensureTemplate();
-  if (!template) {
+  const externalUrl = urlFor(system, className);
+  const origin = originOf(externalUrl);
+  if (!origin) {
+    vscode.window.showErrorMessage(
+      `abap2UI5: the launch URL of ${system.name} is not a valid URL.`
+    );
     return;
   }
-
-  const externalUrl = normalizeUrl(
-    template.replace(/\{class\}/gi, encodeURIComponent(className))
-  );
 
   const openMode = vscode.workspace
     .getConfiguration(CONFIG_SECTION)
     .get<string>(OPEN_MODE_KEY, "tab");
+
+  await rememberApp(context, className);
 
   if (openMode === "external") {
     await vscode.env.openExternal(vscode.Uri.parse(externalUrl));
@@ -413,14 +453,13 @@ async function runApp(
   }
 
   // tab / panel: load through the auth proxy so the login takes effect.
-  const creds = await ensureCredentials(context);
+  const creds = await ensureCredentials(context, origin);
   if (!creds) {
     return;
   }
 
   let frameUrl: string;
   try {
-    const origin = new URL(externalUrl).origin;
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Window,
@@ -439,12 +478,14 @@ async function runApp(
 
   // Remember the cursor position; open the window in which focus stolen by
   // the loading app is handed back (the content loads asynchronously).
-  rememberSource(editor);
+  if (editor) {
+    rememberSource(editor);
+  }
   bounceFocusUntil = Date.now() + 2500;
 
   // Remember for auto-reload on save and for the status bar.
   stopActivationWatch();
-  currentTarget = { className, frameUrl, externalUrl };
+  currentTarget = { className, frameUrl, externalUrl, system: system.name };
   updateStatusItem();
 
   if (openMode === "panel") {
@@ -580,14 +621,6 @@ let proxyRef: SapProxy | undefined;
 /** Server changedAt of the version the preview currently shows. */
 let baselineClass: string | undefined;
 let baselineChangedAt: string | undefined;
-
-function sapClientOf(externalUrl: string): string | undefined {
-  try {
-    return new URL(externalUrl).searchParams.get("sap-client") ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /** True when timestamp `a` is later than `b` (same-format fallback: differs). */
 function isNewer(a: string, b: string): boolean {
@@ -743,11 +776,68 @@ function startActivationWatch(
 }
 
 // ---------------------------------------------------------------------------
+// A rejected logon, made actionable
+// ---------------------------------------------------------------------------
+
+/** So a page made of fifty requests does not produce fifty notifications. */
+let lastAuthPrompt = 0;
+
+/**
+ * The proxy sees every answer the system gives; inside the iframe a 401 is
+ * just an unhelpful page, and the only cure used to be finding "Clear Stored
+ * SAP Credentials" in the palette. This turns it into one offer to retype
+ * them, with the retry that follows.
+ */
+function watchProxyStatus(
+  context: vscode.ExtensionContext,
+  proxy: SapProxy,
+  provider: PreviewViewProvider
+): void {
+  proxy.onResponse = ({ status, path }) => {
+    if (status !== 401 && status !== 403) {
+      if (status >= 500) {
+        log(`proxy: the system answered ${status} for ${path}`);
+      }
+      return;
+    }
+    log(`proxy: the system answered ${status} for ${path}`);
+    const now = Date.now();
+    if (now - lastAuthPrompt < 30_000) {
+      return;
+    }
+    lastAuthPrompt = now;
+    const origin = currentTarget ? originOf(currentTarget.externalUrl) : undefined;
+    void vscode.window
+      .showWarningMessage(
+        `abap2UI5: the system rejected the logon (HTTP ${status}). The stored ` +
+          "user or password may be wrong, or this system does not accept basic " +
+          "auth - in which case set `abap2ui5.openMode` to `external`.",
+        "Re-enter credentials"
+      )
+      .then(async (pick) => {
+        if (pick !== "Re-enter credentials" || !origin) {
+          return;
+        }
+        await clearCredentials(context, origin);
+        const creds = await ensureCredentials(context, origin);
+        if (!creds) {
+          return;
+        }
+        await proxy.start(origin, creds.user, creds.pass);
+        lastAuthPrompt = 0;
+        reloadShownApp(provider, "Reloaded with new credentials");
+      });
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext): void {
+  ctx = context;
   const provider = new PreviewViewProvider();
+  previewProvider = provider;
   const proxy = new SapProxy();
   proxyRef = proxy;
 
@@ -757,6 +847,8 @@ export function activate(context: vscode.ExtensionContext): void {
   log(
     `extension ${String(context.extension.packageJSON.version ?? "?")} activated`
   );
+
+  watchProxyStatus(context, proxy, provider);
 
   statusItem = vscode.window.createStatusBarItem(
     "abap2ui5.status",
@@ -791,16 +883,60 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("abap2ui5.activate", () =>
       activateAndReload(provider)
     ),
+    // Launching does not need the class open: after the first F9 the app is
+    // one command away from anywhere, which is what a preview next to a test
+    // or a helper class actually needs.
+    vscode.commands.registerCommand("abap2ui5.runRecent", async () => {
+      const recent = recentApps(context);
+      if (!recent.length) {
+        vscode.window.showInformationMessage(
+          "abap2UI5: no app launched yet in this window - press F9 in an app class."
+        );
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(recent, {
+        title: "abap2UI5: run an app",
+        placeHolder: "Recently launched in this window",
+      });
+      if (pick) {
+        await runApp(context, proxy, provider, pick);
+      }
+    }),
+    vscode.commands.registerCommand("abap2ui5.selectSystem", async () => {
+      const system = await pickSystem(context);
+      if (!system) {
+        return;
+      }
+      provider.refreshWelcome();
+      log(`system: now launching against ${system.name}`);
+      if (currentTarget) {
+        // Same app, other system - relaunch instead of reloading a URL that
+        // no longer points where the user is looking.
+        await runApp(context, proxy, provider, currentTarget.className);
+      } else {
+        vscode.window.showInformationMessage(
+          `abap2UI5: launching against ${system.name}.`
+        );
+      }
+    }),
     vscode.commands.registerCommand("abap2ui5.setLaunchUrl", async () => {
       const current = vscode.workspace
         .getConfiguration(CONFIG_SECTION)
         .get<string>(TEMPLATE_KEY, "");
-      if (await askForTemplate(current)) {
-        vscode.window.showInformationMessage("abap2UI5: launch URL saved.");
+      const template = await askForTemplate(current);
+      if (!template) {
+        return;
       }
+      await vscode.workspace
+        .getConfiguration(CONFIG_SECTION)
+        .update(TEMPLATE_KEY, template, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage("abap2UI5: launch URL saved.");
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration(`${CONFIG_SECTION}.${TEMPLATE_KEY}`)) {
+      if (
+        e.affectsConfiguration(`${CONFIG_SECTION}.${TEMPLATE_KEY}`) ||
+        e.affectsConfiguration(`${CONFIG_SECTION}.systems`)
+      ) {
         provider.refreshWelcome();
       }
     }),
@@ -818,10 +954,10 @@ export function activate(context: vscode.ExtensionContext): void {
       if (trigger === "never") {
         return;
       }
-      if (!APP_INTERFACE_RE.test(doc.getText())) {
+      if (!isAppClass(doc.getText())) {
         return;
       }
-      if (resolveClassName(doc) !== currentTarget.className) {
+      if (classNameOf(doc.getText(), doc.fileName) !== currentTarget.className) {
         return;
       }
       if (trigger === "activation") {
@@ -842,8 +978,7 @@ export function activate(context: vscode.ExtensionContext): void {
       reloadShownApp(provider, "Reloaded after save");
     }),
     vscode.commands.registerCommand("abap2ui5.resetCredentials", async () => {
-      await context.secrets.delete(SECRET_USER);
-      await context.secrets.delete(SECRET_PASS);
+      await clearCredentials(context);
       vscode.window.showInformationMessage(
         "abap2UI5: stored SAP credentials deleted."
       );
@@ -857,10 +992,20 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   registerViewCheck(context, log);
+  registerQuickFix(context, log);
+  registerLanguageFeatures(context, log);
+  registerCodeLens(context);
   registerRenderGate(context, log);
   registerMcp(context, log);
 }
 
+/*
+ * The skeleton "Insert App Template" writes. It builds its view with
+ * z2ui5_cl_ai_xml on purpose: that is the builder abap2UI5 is standardising
+ * on, and the only one the view check can reconstruct - a template using the
+ * older z2ui5_cl_xml_view handed out a class the extension's own checker then
+ * ignored.
+ */
 const APP_TEMPLATE = `CLASS zcl_my_app DEFINITION PUBLIC.
   PUBLIC SECTION.
     INTERFACES z2ui5_if_app.
@@ -869,8 +1014,15 @@ ENDCLASS.
 CLASS zcl_my_app IMPLEMENTATION.
   METHOD z2ui5_if_app~main.
 
-    DATA(view) = z2ui5_cl_xml_view=>factory( ).
-    view->label( 'Hello abap2UI5' ).
+    DATA(view) = z2ui5_cl_ai_xml=>factory( ).
+    view->open( n = \`View\` ns = \`mvc\`
+        )->a( n = \`xmlns\`     v = \`sap.m\`
+        )->a( n = \`xmlns:mvc\` v = \`sap.ui.core.mvc\`
+        )->open( n = \`Page\`
+        )->a( n = \`title\` v = \`Hello abap2UI5\`
+        )->leaf( n = \`Text\`
+        )->a( n = \`text\` v = \`My first app\` ).
+
     client->view_display( view->stringify( ) ).
 
   ENDMETHOD.

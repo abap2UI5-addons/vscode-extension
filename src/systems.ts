@@ -1,0 +1,305 @@
+import * as vscode from "vscode";
+import { isUsableTemplate, originOf, shortUrl } from "./urls";
+
+/*
+ * The systems the extension can launch against.
+ *
+ * A single `launchUrlTemplate` covers exactly one system, which is not how
+ * anybody works: there is a sandbox, a development system, and often a second
+ * client on one of them. `abap2ui5.systems` holds them as named profiles, the
+ * active one lives in the window's state (so two windows can point at two
+ * systems at once), and the old single setting keeps working as the profile
+ * used when the list is empty.
+ *
+ * Credentials follow the system, not the extension: they are stored per
+ * origin in the SecretStorage, so switching systems does not mean re-entering
+ * a password that is already known.
+ */
+
+const CONFIG_SECTION = "abap2ui5";
+const TEMPLATE_KEY = "launchUrlTemplate";
+const SYSTEMS_KEY = "systems";
+const ACTIVE_KEY = "abap2ui5.activeSystem";
+
+/** The pre-0.14 secret keys - one user, one password, no origin. They are
+ *  migrated to the origin-scoped ones on first use, so an existing install
+ *  is not asked for its password again. */
+const LEGACY_USER = "abap2ui5.user";
+const LEGACY_PASS = "abap2ui5.pass";
+
+export interface SystemProfile {
+  /** What the picker and the status bar show. */
+  name: string;
+  /** URL template with the `{class}` placeholder. */
+  template: string;
+}
+
+function config() {
+  return vscode.workspace.getConfiguration(CONFIG_SECTION);
+}
+
+/** The configured profiles. A malformed entry is skipped rather than
+ *  breaking the picker - the setting is hand-edited JSON. */
+export function systems(): SystemProfile[] {
+  const raw = config().get<Array<{ name?: string; url?: string }>>(SYSTEMS_KEY, []);
+  const list: SystemProfile[] = [];
+  for (const entry of raw ?? []) {
+    const template = (entry?.url ?? "").trim();
+    if (!isUsableTemplate(template)) {
+      continue;
+    }
+    list.push({ name: (entry.name ?? "").trim() || shortUrl(template), template });
+  }
+  return list;
+}
+
+/** The single-setting profile, i.e. what every version before the list had. */
+function singleSystem(): SystemProfile | undefined {
+  const template = config().get<string>(TEMPLATE_KEY, "").trim();
+  return template ? { name: shortUrl(template), template } : undefined;
+}
+
+/** Every profile that can be launched: the list, plus the single setting when
+ *  it names a system the list does not already contain. */
+export function allSystems(): SystemProfile[] {
+  const list = systems();
+  const single = singleSystem();
+  if (single && !list.some((s) => s.template === single.template)) {
+    return [single, ...list];
+  }
+  return list;
+}
+
+/** The system F9 launches against. */
+export function activeSystem(
+  context: vscode.ExtensionContext
+): SystemProfile | undefined {
+  const all = allSystems();
+  const chosen = context.workspaceState.get<string>(ACTIVE_KEY);
+  return all.find((s) => s.name === chosen) ?? all[0];
+}
+
+async function setActive(
+  context: vscode.ExtensionContext,
+  system: SystemProfile
+): Promise<void> {
+  await context.workspaceState.update(ACTIVE_KEY, system.name);
+}
+
+// ---------------------------------------------------------------------------
+// Asking for a launch URL
+// ---------------------------------------------------------------------------
+
+/** Asks for a launch URL template and validates it as it is typed. */
+export async function askForTemplate(current: string): Promise<string | undefined> {
+  const answer = (
+    (await vscode.window.showInputBox({
+      title: "abap2UI5: Set launch URL",
+      prompt: "URL template with {class} as the placeholder",
+      value:
+        current ||
+        "https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100",
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return "The launch URL must not be empty.";
+        }
+        if (!/\{class\}/i.test(trimmed)) {
+          return "The URL needs the {class} placeholder.";
+        }
+        return isUsableTemplate(trimmed) ? undefined : "That is not a valid URL.";
+      },
+    })) ?? ""
+  ).trim();
+  return answer || undefined;
+}
+
+/** Stores a launch URL: into the profile list when one is already in use,
+ *  into the single setting otherwise - so the simple case stays simple. */
+async function storeTemplate(name: string, template: string): Promise<void> {
+  const cfg = config();
+  const list = cfg.get<Array<{ name?: string; url?: string }>>(SYSTEMS_KEY, []) ?? [];
+  if (list.length) {
+    const next = list.filter((entry) => entry?.name !== name);
+    next.push({ name, url: template });
+    await cfg.update(SYSTEMS_KEY, next, vscode.ConfigurationTarget.Global);
+    return;
+  }
+  await cfg.update(TEMPLATE_KEY, template, vscode.ConfigurationTarget.Global);
+}
+
+/** The launch URL of the active system, asking for one when nothing is
+ *  configured yet. */
+export async function ensureSystem(
+  context: vscode.ExtensionContext
+): Promise<SystemProfile | undefined> {
+  const active = activeSystem(context);
+  if (active) {
+    return active;
+  }
+  const template = await askForTemplate("");
+  if (!template) {
+    return undefined;
+  }
+  await storeTemplate(shortUrl(template), template);
+  return activeSystem(context);
+}
+
+/**
+ * The system picker: every configured profile, plus the two ways to get a new
+ * one. Also the place a second system is added from, so nobody has to find
+ * the JSON setting to do it.
+ */
+export async function pickSystem(
+  context: vscode.ExtensionContext
+): Promise<SystemProfile | undefined> {
+  const all = allSystems();
+  const active = activeSystem(context);
+  const items: Array<vscode.QuickPickItem & { system?: SystemProfile; add?: boolean }> =
+    all.map((system) => ({
+      label: system.name === active?.name ? `$(check) ${system.name}` : system.name,
+      description: shortUrl(system.template),
+      system,
+    }));
+  items.push({
+    label: "$(add) Add a system...",
+    description: "asks for a name and a launch URL",
+    add: true,
+  });
+
+  const pick = await vscode.window.showQuickPick(items, {
+    title: "abap2UI5: system to launch against",
+    placeHolder: active ? `Currently: ${active.name}` : "No system configured yet",
+  });
+  if (!pick) {
+    return undefined;
+  }
+  if (pick.add) {
+    const name = (
+      (await vscode.window.showInputBox({
+        title: "abap2UI5: name of the system",
+        prompt: "Shown in the picker and the status bar, e.g. DEV or Sandbox",
+        ignoreFocusOut: true,
+      })) ?? ""
+    ).trim();
+    if (!name) {
+      return undefined;
+    }
+    const template = await askForTemplate("");
+    if (!template) {
+      return undefined;
+    }
+    // Adding a second system turns the single setting into the first entry of
+    // the list, so both end up in the same place.
+    const cfg = config();
+    const existing =
+      cfg.get<Array<{ name?: string; url?: string }>>(SYSTEMS_KEY, []) ?? [];
+    if (!existing.length) {
+      const single = singleSystem();
+      if (single) {
+        existing.push({ name: single.name, url: single.template });
+      }
+    }
+    existing.push({ name, url: template });
+    await cfg.update(SYSTEMS_KEY, existing, vscode.ConfigurationTarget.Global);
+    const added = { name, template };
+    await setActive(context, added);
+    return added;
+  }
+  if (pick.system) {
+    await setActive(context, pick.system);
+    return pick.system;
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Credentials, per system
+// ---------------------------------------------------------------------------
+
+/** Secrets are keyed by origin: two clients on one host share a logon, two
+ *  hosts do not. */
+function keysFor(origin: string): { user: string; pass: string } {
+  return { user: `abap2ui5.user:${origin}`, pass: `abap2ui5.pass:${origin}` };
+}
+
+export interface Credentials {
+  user: string;
+  pass: string;
+}
+
+/**
+ * The credentials for one origin, asking for them once. A pre-0.14 install
+ * has them under the old unscoped keys; those are adopted for the first
+ * origin asked about and then removed, so nobody is prompted twice for a
+ * password the extension already holds.
+ */
+export async function ensureCredentials(
+  context: vscode.ExtensionContext,
+  origin: string
+): Promise<Credentials | undefined> {
+  const secrets = context.secrets;
+  const keys = keysFor(origin);
+  let user = await secrets.get(keys.user);
+  let pass = await secrets.get(keys.pass);
+
+  if (!user && !pass) {
+    const legacyUser = await secrets.get(LEGACY_USER);
+    const legacyPass = await secrets.get(LEGACY_PASS);
+    if (legacyUser && legacyPass) {
+      await secrets.store(keys.user, legacyUser);
+      await secrets.store(keys.pass, legacyPass);
+      await secrets.delete(LEGACY_USER);
+      await secrets.delete(LEGACY_PASS);
+      user = legacyUser;
+      pass = legacyPass;
+    }
+  }
+
+  if (!user) {
+    user = await vscode.window.showInputBox({
+      title: `abap2UI5: SAP user for ${originOf(origin) ?? origin}`,
+      prompt: "User for logging on to the SAP system (same as in ADT)",
+      ignoreFocusOut: true,
+    });
+    if (!user) {
+      return undefined;
+    }
+    await secrets.store(keys.user, user);
+  }
+
+  if (!pass) {
+    pass = await vscode.window.showInputBox({
+      title: `abap2UI5: SAP password for ${originOf(origin) ?? origin}`,
+      prompt: "Password (stored securely in the VS Code SecretStorage)",
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (!pass) {
+      return undefined;
+    }
+    await secrets.store(keys.pass, pass);
+  }
+
+  return { user, pass };
+}
+
+/** Forgets the credentials of one origin, or of every configured system. */
+export async function clearCredentials(
+  context: vscode.ExtensionContext,
+  origin?: string
+): Promise<void> {
+  const origins = origin
+    ? [origin]
+    : allSystems()
+        .map((s) => originOf(s.template))
+        .filter((o): o is string => !!o);
+  for (const each of origins) {
+    const keys = keysFor(each);
+    await context.secrets.delete(keys.user);
+    await context.secrets.delete(keys.pass);
+  }
+  await context.secrets.delete(LEGACY_USER);
+  await context.secrets.delete(LEGACY_PASS);
+}

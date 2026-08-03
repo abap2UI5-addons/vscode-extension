@@ -11,8 +11,15 @@
       "CLASS ${1:zcl_my_app} IMPLEMENTATION.",
       "  METHOD z2ui5_if_app~main.",
       "",
-      "    DATA(view) = z2ui5_cl_xml_view=>factory( ).",
-      "    view->label( '${2:Hello abap2UI5}' ).",
+      "    DATA(view) = z2ui5_cl_ai_xml=>factory( ).",
+      "    view->open( n = `View` ns = `mvc`",
+      "        )->a( n = `xmlns`     v = `sap.m`",
+      "        )->a( n = `xmlns:mvc` v = `sap.ui.core.mvc`",
+      "        )->open( n = `Page`",
+      "        )->a( n = `title` v = `${2:Hello abap2UI5}`",
+      "        )->leaf( n = `Text`",
+      "        )->a( n = `text` v = `${3:My first app}` ).",
+      "",
       "    client->view_display( view->stringify( ) ).",
       "",
       "  ENDMETHOD.",
@@ -20,13 +27,75 @@
       "$0"
     ]
   },
+  "abap2UI5 Control": {
+    "prefix": "z2ui5leaf",
+    "description": "A childless control with one attribute",
+    "body": [
+      "leaf( n = `${1:Text}`",
+      "    )->a( n = `${2:text}` v = `${3:Hello}`",
+      "    )$0"
+    ]
+  },
+  "abap2UI5 Container": {
+    "prefix": "z2ui5open",
+    "description": "A control that takes children - open, fill, shut",
+    "body": [
+      "open( n = `${1:VBox}`",
+      "    )->$0",
+      "shut( )"
+    ]
+  },
   "abap2UI5 Button": {
     "prefix": "z2ui5button",
-    "description": "abap2UI5 button with event",
+    "description": "abap2UI5 button with an event",
     "body": [
-      "view->button(",
-      "  text  = '${1:Press me}'",
-      "  press = client->_event( '${2:BUTTON_CLICK}' ) )."
+      "leaf( n = `Button`",
+      "    )->a( n = `text`  v = `${1:Press me}`",
+      "    )->a( n = `press` v = client->_event( `${2:BUTTON_CLICK}` )",
+      "    )$0"
     ]
+  },
+  "abap2UI5 Input": {
+    "prefix": "z2ui5input",
+    "description": "Input bound two-way to a class attribute",
+    "body": [
+      "leaf( n = `Input`",
+      "    )->a( n = `value` v = client->_bind( ${1:mv_value} )",
+      "    )$0"
+    ]
+  },
+  "abap2UI5 Table": {
+    "prefix": "z2ui5table",
+    "description": "Table over an internal table, with one column",
+    "body": [
+      "open( n = `Table`",
+      "    )->a( n = `items` v = client->_bind( ${1:mt_data} )",
+      "    )->open( n = `columns`",
+      "    )->open( n = `Column`",
+      "    )->leaf( n = `Text`",
+      "    )->a( n = `text` v = `${2:Column}`",
+      "    )->shut( )->shut( )",
+      "    )->open( n = `items`",
+      "    )->open( n = `ColumnListItem`",
+      "    )->open( n = `cells`",
+      "    )->leaf( n = `Text`",
+      "    )->a( n = `text` v = `{${3:FIELD}}`",
+      "    )->shut( )->shut( )->shut( )$0"
+    ]
+  },
+  "abap2UI5 Event Handler": {
+    "prefix": "z2ui5event",
+    "description": "Dispatch on the event the view raised",
+    "body": [
+      "CASE client->get( )-event.",
+      "  WHEN `${1:BUTTON_CLICK}`.",
+      "    $0",
+      "ENDCASE."
+    ]
+  },
+  "abap2UI5 Lint Waiver": {
+    "prefix": "z2ui5disable",
+    "description": "Waive one linter rule for the next line",
+    "body": ["\" abap2ui5lint-disable-next-line ${1:rule-id} -- ${2:why}"]
   }
 }

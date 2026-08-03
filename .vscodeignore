@@ -1,6 +1,7 @@
 .vscode/**
 .github/**
 src/**
+dist-test/**
 scripts/**
 AGENTS.md
 node_modules/**

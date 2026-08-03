@@ -1,7 +1,88 @@
 # Changelog
 
-## Unreleased
+## 0.14.0
 
+- **Completion and hover for every UI5 control and property.** The extension
+  already ships the UI5 metadata its view check validates against - a complete
+  API reference sitting next to the bundle. It is now offered while the view
+  is written: control names inside `open( )` / `leaf( )`, the properties,
+  aggregations, associations and events of exactly that control inside the
+  `a( )` chained to it, and the accepted values of an enum or boolean
+  property. Hover shows the type, the UI5 version a member appeared in, its
+  deprecation and a link to the UI5 API reference. Raw `*.view.xml` and
+  `*.fragment.xml` files get the same. No system, no network, no setup - the
+  knowledge that reported the typo afterwards now prevents it.
+- **Quick fixes.** The findings whose correction is mechanical carry the
+  correction with them, and the lightbulb now offers it: the obsolete
+  `client->_bind_edit( )`, a missing `$` in an event argument, an ABAP boolean
+  written straight into the view. "Fix all in this file" comes with it, also
+  as `source.fixAll.abap2ui5` for `editor.codeActionsOnSave`.
+- **Waive one line, the way CI understands it.** Every finding now offers
+  "suppress on this line", which writes the linter's own
+  `" abap2ui5lint-disable-next-line <rule>` directive above it. The other half
+  of that was a real defect: the editor **ignored** those directives, so a
+  line deliberately waived for the CLI and the GitHub Action kept squiggling
+  here. It no longer does.
+- **The editor reads `abap2ui5lint.jsonc`.** A repository that pins its UI5
+  floor, its distribution, its `allow` list or its per-rule severities was
+  checked against those in CI and against the VS Code settings here - the same
+  file could be clean in the editor and red in CI. The repo config now wins
+  wherever it says something, the settings fill in the rest, and the `allow`
+  lists merge. The output channel names the file the values came from.
+- **Checking while you type.** The property gate runs in-process, so it no
+  longer waits for a save: findings appear shortly after each pause. The
+  render gate stays on save and on demand. Switch it off with
+  `abap2ui5.viewCheck.live`.
+- **"Check All Views in the Workspace"** runs the same gate over every ABAP
+  class and view file in the workspace and fills the Problems panel - the
+  answer to "will the linter gate pass before I push?", which until now only
+  covered whatever happened to be open.
+- **Every finding links to its rule.** The diagnostic's code is the rule id
+  and points at the published rule reference, so a Ctrl+click explains what
+  the rule means and what the fix looks like. Deprecations are marked as such,
+  so VS Code strikes the member through.
+- **More than one system.** `abap2ui5.systems` holds named launch profiles;
+  *"abap2UI5: Select System"* switches between them and remembers the choice
+  per window, so two windows can work against two systems at once.
+  Credentials are stored per host, so switching does not ask again - and an
+  existing single-system install keeps working untouched.
+- **Theme and language in the preview toolbar.** Both are ordinary URL
+  parameters of the app, so checking an app in Horizon Dark or in a second
+  logon language is now two clicks instead of a hand-edited URL in the
+  browser.
+- **A rejected logon says so.** Inside the iframe a 401 was an unhelpful page,
+  and the only cure was finding "Clear Stored SAP Credentials" in the palette.
+  The proxy sees the answer, so the extension now offers to retype the
+  credentials and reloads with them.
+- **Run an app without its class open.** *"abap2UI5: Run a Recently Launched
+  App"* lists what this window has launched.
+- **Run, Activate & reload and Check views above the class definition.** The
+  dev loop was discoverable only through the palette; a CodeLens says it out
+  loud. Switch it off with `abap2ui5.codeLens`.
+- **Fixed: the view check did nothing in a fresh window.** The extension
+  declared no activation event, so it only woke up once F9 was pressed or the
+  preview panel was opened - until then, saving an ABAP class produced no
+  diagnostics at all. It now activates for ABAP files.
+- **Fixed: F9 did nothing for `INTERFACES: z2ui5_if_app.`** The chained form
+  is just as common as the plain one and was not recognised, so F9 silently
+  toggled a breakpoint instead of launching the app.
+- **Fixed: two quick saves lost one check.** The checker allowed one run at a
+  time globally and dropped anything arriving while it was busy - with the
+  render gate on, which takes seconds, that was easy to hit. Runs are now
+  tracked per file, and only a newer run for the *same* file supersedes an
+  older one.
+- **The app template and the snippets use `z2ui5_cl_ai_xml`.** They still
+  taught `z2ui5_cl_xml_view`, which is on its way out of abap2UI5 and which
+  the view check deliberately does not reconstruct - so "Insert App Template"
+  handed out a class the extension's own checker then ignored. Five more
+  snippets come with the change (container, input, table, event dispatch, lint
+  waiver).
+- Internal: the settings that name a program to start (`viewCheck.command`,
+  `mcp.command`, `mcp.reposRoot`) are machine-scoped, so a cloned repository
+  cannot point them somewhere else; the CSP nonce comes from the crypto RNG;
+  the pure helpers moved into `vscode`-free modules with a `node --test` suite
+  behind them, which CI now runs; CI and the release build on Node 22, the
+  version the bundled linter asks for.
 - **The repository moved** from `abap2UI5-addons/vscode-extension` to
   [`abap2UI5/vscode-extension`](https://github.com/abap2UI5/vscode-extension),
   and the linter's from `abap2UI5/abap2UI5-linter` to
