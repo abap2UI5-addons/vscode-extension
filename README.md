@@ -97,6 +97,13 @@ the list as soon as you add a second one.
 | `panel` | The same, but in the bottom panel area next to Terminal/Output |
 | `external` | In the normal browser (reuses your existing SAP session/SSO, no proxy needed) |
 
+The choice does not have to be made in the settings: **abap2UI5: Show the
+Preview in the Panel** and **abap2UI5: Show the Preview in an Editor Tab**
+switch the mode and take a running app along — it changes place, it does not
+restart. The panel's title bar carries the way back, and the panel's empty
+state says which mode is in force, so it never asks you to press F9 for an app
+that opens somewhere else.
+
 ### How the login works in tab/panel mode (auth proxy)
 
 An embedded iframe has **no** SAP session — a direct call would end in a
@@ -315,6 +322,9 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2UI5: Reload Preview` | Reloads the app currently shown |
 | `abap2UI5: Run a Recently Launched App` | Launches an app this window has run before, without opening its class |
 | `abap2UI5: Select System` | Switches the system F9 launches against, or adds one |
+| `abap2UI5: Show the Preview in the Panel` | Moves the preview (and the running app) into the bottom panel |
+| `abap2UI5: Show the Preview in an Editor Tab` | Moves it back into an editor tab |
+| `abap2UI5: Go to the Running App` | Focuses the preview, wherever it currently is |
 | `abap2UI5: Check Views (Static)` | Runs the static view check on the current file |
 | `abap2UI5: Check All Views in the Workspace` | Runs the same check over every ABAP class and view file |
 | `abap2UI5: Fix All View Findings in This File` | Applies every mechanical fix at once |

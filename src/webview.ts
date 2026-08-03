@@ -89,6 +89,8 @@ const ICON = {
   code: `<path d="M5.6 3.6 6.7 4.7 3.9 7.5l2.8 2.8-1.1 1.1L1.7 7.5l3.9-3.9zm4.8 0 3.9 3.9-3.9 3.9-1.1-1.1 2.8-2.8-2.8-2.8 1.1-1.1z"/>`,
   book: `<path d="M2 3h4.2c.7 0 1.3.2 1.8.6.5-.4 1.1-.6 1.8-.6H14v9.2h-4.2c-.6 0-1.2.3-1.5.8h-.6c-.3-.5-.9-.8-1.5-.8H2V3zm1.5 1.5v6.2h2.7c.5 0 1 .1 1.4.3V5.7c-.3-.2-.6-.2-.9-.2H3.5zm9 0H9.8c-.3 0-.6 0-.9.2v5.3c.4-.2.9-.3 1.4-.3h2.2V4.5z"/>`,
   link: `<path d="M8.5 2.5 10 4l-1.4 1.4-1-1a1.8 1.8 0 0 0-2.6 2.6l1 1L4.6 9.4l-1.5-1.5a3.3 3.3 0 0 1 4.7-4.7l.7.3zm4 4a3.3 3.3 0 0 1 0 4.7l-1.5 1.5-1.4-1.4 1.4-1.4a1.8 1.8 0 0 0-2.6-2.6L7 8.7 5.6 7.3 7 5.9a3.3 3.3 0 0 1 5.5.6z"/>`,
+  panel: `<path d="M2 3h12v10H2V3zm1.5 1.5v3.1h9V4.5h-9zm0 4.6v2.4h9V9.1h-9z"/>`,
+  tab: `<path d="M2 4h5.5l1 1.5H14V13H2V4zm1.5 1.5v6h9V7H7.7l-1-1.5H3.5z"/>`,
 };
 
 function icon(name: keyof typeof ICON): string {
@@ -510,14 +512,81 @@ ${BASE_CSS}
 // Welcome / empty state
 // ---------------------------------------------------------------------------
 
+/** Where F9 opens an app — `abap2ui5.openMode`. */
+export type OpenMode = "tab" | "panel" | "external";
+
 export interface WelcomeOptions {
   nonce: string;
   /** False -> the first step nudges the user to configure the launch URL. */
   hasLaunchUrl: boolean;
+  /**
+   * Where F9 opens the app. Only `panel` ever replaces this screen with a
+   * running app, so the other two say so rather than waiting forever.
+   */
+  openMode: OpenMode;
+  /** Class of the app shown in an editor tab right now, if there is one. */
+  runningClass?: string;
 }
 
+/**
+ * The empty state of the panel view.
+ *
+ * It has to answer one question the old version left open: *why is nothing
+ * happening here?* With the default `openMode` of `tab` this view is never
+ * the one F9 fills, so it explains where the app goes instead and offers the
+ * one click that moves it here.
+ */
 export function welcomeHtml(options: WelcomeOptions): string {
-  const { nonce, hasLaunchUrl } = options;
+  const { nonce, hasLaunchUrl, openMode, runningClass } = options;
+  const here = openMode === "panel";
+  const elsewhere = openMode === "external" ? "in your browser" : "in an editor tab";
+  const running = runningClass ? escapeHtml(runningClass) : "";
+
+  // The three steps of the first run — step 2 names the place the app opens.
+  const steps = `
+    <ol>
+      <li><span class="num">1</span><span>${
+        hasLaunchUrl
+          ? "Open an ABAP class that implements <code>z2ui5_if_app</code>."
+          : "Set the launch URL of your system &mdash; asked once, stored in the settings."
+      }</span></li>
+      <li><span class="num">2</span><span>${
+        hasLaunchUrl
+          ? `Press <kbd>F9</kbd> &mdash; the app opens ${
+              here ? "here" : elsewhere
+            }, the cursor stays in the code.`
+          : "Open an app class and press <kbd>F9</kbd>."
+      }</span></li>
+      <li><span class="num">3</span><span>Activate the class with <kbd>Ctrl+F3</kbd> &mdash; the preview reloads on its own. A save alone leaves the server on the active version, so it does not reload.</span></li>
+    </ol>`;
+
+  // An app is running, just not in this view: say where it is, not how to start.
+  const away = `
+    <p class="run"><span class="pill">${running}</span> is running in an editor tab.</p>
+    <p class="sub">This panel shows the app only while <code>abap2ui5.openMode</code> is <code>panel</code>. Move it over &mdash; the app keeps running, it changes place.</p>`;
+
+  const subtitle = here
+    ? "Your app runs here, right next to the code."
+    : `F9 opens your app ${elsewhere} &mdash; not in this panel.`;
+
+  const primary =
+    running && !here
+      ? `<button data-command="abap2ui5.previewInPanel">${icon(
+          "panel"
+        )}Show it here</button><button class="secondary" data-command="abap2ui5.revealApp">${icon(
+          "tab"
+        )}Go to the tab</button>`
+      : `<button data-command="${
+          hasLaunchUrl ? "abap2ui5.selectSystem" : "abap2ui5.setLaunchUrl"
+        }">${icon("link")}${
+          hasLaunchUrl ? "Choose system" : "Set launch URL"
+        }</button>${
+          here
+            ? ""
+            : `<button class="secondary" data-command="abap2ui5.previewInPanel">${icon(
+                "panel"
+              )}Run apps here</button>`
+        }`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -540,6 +609,15 @@ ${BASE_CSS}
     font-weight: 600;
   }
   .sub { margin: 0 0 20px; opacity: 0.7; }
+  .run { margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .pill {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+  }
   ol {
     margin: 0 0 20px;
     padding: 0;
@@ -586,25 +664,17 @@ ${BASE_CSS}
 <body>
   <div class="card">
     <h1>abap2UI5 preview</h1>
-    <p class="sub">Your app runs here, right next to the code.</p>
-    <ol>
-      <li><span class="num">1</span><span>${
-        hasLaunchUrl
-          ? "Open an ABAP class that implements <code>z2ui5_if_app</code>."
-          : "Set the launch URL of your system &mdash; asked once, stored in the settings."
-      }</span></li>
-      <li><span class="num">2</span><span>${
-        hasLaunchUrl
-          ? "Press <kbd>F9</kbd> &mdash; the app opens here, the cursor stays in the code."
-          : "Open an app class and press <kbd>F9</kbd>."
-      }</span></li>
-      <li><span class="num">3</span><span>Activate the class with <kbd>Ctrl+F3</kbd> &mdash; the preview reloads on its own. A save alone leaves the server on the active version, so it does not reload.</span></li>
-    </ol>
+    <p class="sub">${subtitle}</p>
+    ${running && !here ? away : steps}
     <div class="actions">
-      <button data-command="${
-        hasLaunchUrl ? "abap2ui5.selectSystem" : "abap2ui5.setLaunchUrl"
-      }">${icon("link")}${hasLaunchUrl ? "Choose system" : "Set launch URL"}</button>
-      <button class="secondary" data-command="abap2ui5.newApp">${icon("code")}Insert app template</button>
+      ${primary}
+      ${
+        running && !here
+          ? ""
+          : `<button class="secondary" data-command="abap2ui5.newApp">${icon(
+              "code"
+            )}Insert app template</button>`
+      }
       <button class="secondary" data-command="abap2ui5.openHomepage">${icon("book")}Project on GitHub</button>
     </div>
   </div>

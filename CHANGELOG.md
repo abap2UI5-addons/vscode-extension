@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.0
+
+- **The abap2UI5 panel is no longer a dead end.** With the default open mode
+  (`tab`) F9 opens the app in an editor tab, while the **abap2UI5** view in the
+  bottom panel kept showing "press F9, the app opens here" — an instruction
+  that was never going to come true there. The empty state now says where the
+  app actually opens, and names the app once one is running: *ZCL_MY_APP is
+  running in an editor tab*, with **Show it here** and **Go to the tab**.
+- **Move the preview without going through the settings.** *"abap2UI5: Show
+  the Preview in the Panel"* and *"abap2UI5: Show the Preview in an Editor
+  Tab"* switch `abap2ui5.openMode` and take the running app along, so it
+  changes place instead of having to be launched again. The panel's title bar
+  carries the way back, next to the reload button.
+- *"abap2UI5: Go to the Running App"* focuses the preview wherever it is.
+
 ## 0.15.0
 
 - **On the VS Code Marketplace.** The extension is published as

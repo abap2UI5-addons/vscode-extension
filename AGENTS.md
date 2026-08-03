@@ -28,7 +28,7 @@ find a German string anywhere, it is a leftover — translate it.
 | Path | Purpose |
 | --- | --- |
 | `src/extension.ts` | Activation, the F9 command, the Ctrl+F3 activate-and-reload command, webview tab and panel, reload handling |
-| `src/webview.ts` | HTML for the preview and the welcome screen (theme variables, CSP nonce, theme/language pickers) |
+| `src/webview.ts` | HTML for the preview and the welcome screen (theme variables, CSP nonce, theme/language pickers, the open-mode-aware empty state) |
 | `src/proxy.ts` | Local reverse proxy that injects basic auth so the embedded iframe avoids a 401 |
 | `src/systems.ts` | Named launch profiles, the active-system state, credentials per host |
 | `src/viewcheck.ts` | Static view checks via abap2UI5-linter: live + on-save + on-demand + workspace, findings as diagnostics |
@@ -49,7 +49,8 @@ find a German string anywhere, it is a leftover — translate it.
 not committed.
 
 **The `vscode`-free boundary is load-bearing.** `abap.ts`, `urls.ts`,
-`context.ts`, `metadata.ts`, `lintconfig.ts` and `snapshot.ts` must not import
+`context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts` and `webview.ts`
+(HTML strings only — the state it renders is passed in) must not import
 `vscode`: the test suite bundles them for plain Node, and an accidental import
 turns a unit test into a module-not-found error. Put the interesting logic
 there and keep the VS Code modules to plumbing — that is what made the regex

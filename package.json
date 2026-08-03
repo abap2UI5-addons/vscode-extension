@@ -2,7 +2,7 @@
   "name": "abap2ui5",
   "displayName": "abap2UI5",
   "description": "Develop abap2UI5 apps in VS Code: F9 launches a z2ui5_if_app class in an embedded preview, reload on activation, static view checks, the abap2UI5 MCP server for AI agents, snippets.",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "publisher": "abap2ui5",
   "license": "MIT",
   "private": true,
@@ -65,6 +65,21 @@
         "command": "abap2ui5.runRecent",
         "title": "abap2UI5: Run a Recently Launched App",
         "icon": "$(history)"
+      },
+      {
+        "command": "abap2ui5.previewInPanel",
+        "title": "abap2UI5: Show the Preview in the Panel",
+        "icon": "$(layout-panel)"
+      },
+      {
+        "command": "abap2ui5.previewInTab",
+        "title": "abap2UI5: Show the Preview in an Editor Tab",
+        "icon": "$(window)"
+      },
+      {
+        "command": "abap2ui5.revealApp",
+        "title": "abap2UI5: Go to the Running App",
+        "icon": "$(eye)"
       },
       {
         "command": "abap2ui5.setLaunchUrl",
@@ -130,6 +145,11 @@
           "command": "abap2ui5.reload",
           "when": "view == abap2ui5.preview",
           "group": "navigation@1"
+        },
+        {
+          "command": "abap2ui5.previewInTab",
+          "when": "view == abap2ui5.preview",
+          "group": "navigation@2"
         }
       ]
     },
@@ -212,7 +232,7 @@
             "Open in the default browser (reuses your existing SAP session/SSO)."
           ],
           "default": "tab",
-          "markdownDescription": "How F9 opens the app.\n\n- `tab`: embedded in an editor tab. Runs through a **local auth proxy** that injects your SAP credentials (asked for once) - no 401.\n- `panel`: the same, but in the bottom panel area.\n- `external`: in the normal browser (reuses your existing login, no proxy needed).\n\nTo reset the credentials, run the command **\"abap2UI5: Clear Stored SAP Credentials\"**."
+          "markdownDescription": "How F9 opens the app.\n\n- `tab`: embedded in an editor tab. Runs through a **local auth proxy** that injects your SAP credentials (asked for once) - no 401.\n- `panel`: the same, but in the bottom panel area - the **abap2UI5** view next to Terminal and Output.\n- `external`: in the normal browser (reuses your existing login, no proxy needed).\n\nThe commands **\"abap2UI5: Show the Preview in the Panel\"** and **\"abap2UI5: Show the Preview in an Editor Tab\"** switch this setting and take a running app along, so the choice does not have to be made up front.\n\nTo reset the credentials, run the command **\"abap2UI5: Clear Stored SAP Credentials\"**."
         },
         "abap2ui5.reloadOn": {
           "type": "string",
