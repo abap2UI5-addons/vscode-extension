@@ -13,13 +13,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # The bundled linter declares engines >= 22; npm only warns today,
+          # but there is no reason for CI to build on a version the toolchain
+          # says it does not support.
+          node-version: 22
           cache: npm
 
       - run: npm ci
 
-      # Same three commands AGENTS.md asks for before pushing.
+      # Same four commands AGENTS.md asks for before pushing.
       - run: npm run lint
+      - run: npm test
       - run: npm run package
       - run: npm run vsix
 

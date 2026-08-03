@@ -5,14 +5,24 @@ import * as path from "path";
 import { spawn } from "child_process";
 import { checkAbapRules } from "@abap2ui5/linter/abap-rules";
 import { prepareAbap } from "@abap2ui5/linter/reconstruct";
+import { checkNodes, parseXml, PropertyFinding } from "@abap2ui5/linter/properties";
 import {
-  checkNodes,
-  loadSnapshot,
-  parseXml,
-  PropertyFinding,
-} from "@abap2ui5/linter/properties";
-import { annotate, describe, severityOf } from "@abap2ui5/linter/findings";
+  annotate,
+  applyDirectives,
+  applyRules,
+  describe,
+  RULES,
+  severityOf,
+} from "@abap2ui5/linter/findings";
 import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
+import { snapshot, snapshotError, snapshotUi5Version } from "./snapshot";
+import { usesBuilder } from "./abap";
+import {
+  CheckOptions,
+  clearConfigCache,
+  describeOptions,
+  resolveOptions,
+} from "./lintconfig";
 
 /*
  * Static view validation through abap2UI5-linter
@@ -22,21 +32,28 @@ import { installRenderGate, renderGateBrowsers, renderGateCli } from "./renderga
  * UI5 metadata snapshot are bundled, so unknown controls (typos), controls
  * or properties introduced after the configured target UI5 version and
  * deprecations already in effect there show up as diagnostics with zero
- * setup - no node, npx or network involved.
+ * setup - no node, npx or network involved. Being in-process is also what
+ * makes checking while typing affordable.
  *
  * Only the optional render gate (a real XMLView.create in headless
  * Chromium) needs the external linter CLI, because it serves the
- * OpenUI5 runtime from its own node_modules and drives a browser.
+ * OpenUI5 runtime from its own node_modules and drives a browser. It never
+ * runs on a keystroke - only on save and on demand.
  */
 
 const CONFIG_SECTION = "abap2ui5";
 const DIAG_SOURCE = "abap2UI5-linter";
 
-/** ABAP classes are only checkable when they build views with the generic
- *  builder - the same signal the checker itself uses. */
-const FACTORY_RE = /z2ui5_cl_ai_xml=>factory/i;
+/** The published rule reference - one anchor per rule id, which is what makes
+ *  every diagnostic's code clickable. */
+const RULES_PAGE = "https://abap2ui5.github.io/linter/";
 
 const VIEW_XML_RE = /\.(view|fragment)\.xml$/i;
+
+/** How long to wait after the last keystroke before checking. Long enough
+ *  that typing a control name does not flash three different errors, short
+ *  enough to feel immediate. */
+const LIVE_DEBOUNCE_MS = 400;
 
 interface RenderResult {
   renderErrors: string[];
@@ -47,12 +64,9 @@ interface RenderResult {
  *  warning on every save. */
 let spawnFailed = false;
 
-let running = false;
-
-let snapshotCache: unknown;
-
-/** The target/metadata versions are logged once per session. */
-let versionLogged = false;
+/** The target/metadata versions are logged once per session, and again
+ *  whenever they change (a different config file governs the document). */
+let lastVersionLine = "";
 
 /** Set by registerViewCheck - checkerCommand needs the extension's global
  *  storage to find a self-installed render gate. */
@@ -60,26 +74,6 @@ let extContext: vscode.ExtensionContext | undefined;
 
 function config() {
   return vscode.workspace.getConfiguration(CONFIG_SECTION);
-}
-
-/** The UI5 version the bundled snapshot was generated from - read straight
- *  from the file, so an older snapshot without the field is fine. */
-function snapshotUi5Version(): string | undefined {
-  try {
-    const raw = fs.readFileSync(path.join(__dirname, "properties.json"), "utf8");
-    return JSON.parse(raw).ui5Version;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The bundled UI5 metadata snapshot - copied next to the bundle by the
- *  build (see esbuild.js). */
-function snapshot(): unknown {
-  if (snapshotCache === undefined) {
-    snapshotCache = loadSnapshot(path.join(__dirname, "properties.json"));
-  }
-  return snapshotCache;
 }
 
 /** Checkable = a view/fragment XML, or an ABAP source calling the generic
@@ -93,7 +87,7 @@ function isCheckable(doc: vscode.TextDocument): boolean {
   if (doc.languageId !== "abap" && !/\.abap$/i.test(doc.fileName)) {
     return false;
   }
-  return FACTORY_RE.test(doc.getText());
+  return usesBuilder(doc.getText());
 }
 
 /** The document to check on demand: the active editor when it is checkable,
@@ -111,6 +105,29 @@ function pickDocument(): vscode.TextDocument | undefined {
   }
   return active;
 }
+
+/** The directory the repo config is discovered from: the document's own
+ *  folder, so a multi-root workspace resolves per file, exactly like the CLI
+ *  invoked in that directory would. */
+function discoveryDir(doc: vscode.TextDocument): string | undefined {
+  if (doc.uri.scheme === "file") {
+    return path.dirname(doc.uri.fsPath);
+  }
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+function optionsFor(doc: vscode.TextDocument): CheckOptions {
+  const cfg = config();
+  return resolveOptions(discoveryDir(doc), {
+    minUi5: cfg.get<string>("viewCheck.minUi5", "1.71"),
+    distribution: cfg.get<string>("viewCheck.distribution", "sapui5"),
+    allow: cfg.get<string[]>("viewCheck.allow", []),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Findings -> diagnostics
+// ---------------------------------------------------------------------------
 
 /** What to underline: the member name, the control's local name, or - for
  *  the findings that are about a value rather than a member - that value. */
@@ -163,12 +180,29 @@ const DIAGNOSTIC_SEVERITY = {
   hint: vscode.DiagnosticSeverity.Information,
 } as const;
 
+/** The rules whose subject really is a deprecation - VS Code strikes the
+ *  underlined text through for them, which says it better than any wording. */
+const DEPRECATION_RULES = new Set(["control-deprecated", "member-deprecated"]);
+
+/** The diagnostic code: the rule id, linked to its section on the published
+ *  rule reference. Ctrl+click in the Problems panel then explains what the
+ *  rule means and what the fix looks like - the paragraph that never fits in
+ *  a one-line message. */
+function diagnosticCode(
+  type: string
+): string | { value: string; target: vscode.Uri } {
+  if (!RULES.includes(type)) {
+    return type;
+  }
+  return { value: type, target: vscode.Uri.parse(`${RULES_PAGE}#${type}`) };
+}
+
 function toDiagnostics(
   doc: vscode.TextDocument,
   findings: PropertyFinding[],
   renderErrors: string[]
 ): vscode.Diagnostic[] {
-  const diags: vscode.Diagnostic[] = [];
+  const diagnostics: vscode.Diagnostic[] = [];
   for (const f of findings) {
     const d = new vscode.Diagnostic(
       findingRange(doc, f),
@@ -176,8 +210,11 @@ function toDiagnostics(
       DIAGNOSTIC_SEVERITY[f.severity ?? severityOf(f)]
     );
     d.source = DIAG_SOURCE;
-    d.code = f.member ? `${f.control}.${f.member}` : f.control;
-    diags.push(d);
+    d.code = diagnosticCode(f.type);
+    if (DEPRECATION_RULES.has(f.type)) {
+      d.tags = [vscode.DiagnosticTag.Deprecated];
+    }
+    diagnostics.push(d);
   }
   for (const e of renderErrors) {
     const d = new vscode.Diagnostic(
@@ -186,9 +223,10 @@ function toDiagnostics(
       vscode.DiagnosticSeverity.Error
     );
     d.source = DIAG_SOURCE;
-    diags.push(d);
+    d.code = "render-error";
+    diagnostics.push(d);
   }
-  return diags;
+  return diagnostics;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,134 +399,343 @@ function runRenderGate(
 }
 
 // ---------------------------------------------------------------------------
-// The check itself
+// The property gate itself - in-process, no I/O, safe to run on a keystroke
 // ---------------------------------------------------------------------------
+
+interface GateResult {
+  findings: PropertyFinding[];
+  /** True when the source is one the render gate could load as a whole. */
+  renderable: boolean;
+  /** Set when nothing was validated - the caller must not claim a pass. */
+  nothingChecked?: string;
+  helperNote: string;
+}
+
+/**
+ * Runs every in-process rule over one source and returns the surviving
+ * findings: after the repo config's `rules` block (severity overrides and
+ * switch-offs) and after the source's own `abap2ui5lint-disable…` directives.
+ * Both of those are what the CLI and the GitHub Action apply, and leaving
+ * them out here is what used to make a waived line squiggle in the editor
+ * anyway.
+ */
+function runGate(
+  text: string,
+  fileName: string,
+  isXml: boolean,
+  options: CheckOptions
+): GateResult {
+  const { minUi5, distribution, allow } = options;
+  const data = snapshot();
+  let findings: PropertyFinding[] = [];
+  let renderable = true;
+  let helperNote = "";
+
+  if (isXml) {
+    findings.push(
+      ...checkNodes(parseXml(text), { data, minUi5, allow, distribution })
+    );
+  } else {
+    const prep = prepareAbap(text);
+    if (!prep.usesBuilder) {
+      return {
+        findings: [],
+        renderable: false,
+        helperNote: "",
+        nothingChecked: "no z2ui5_cl_ai_xml=>factory call found",
+      };
+    }
+    if (prep.nodes.length === 0) {
+      // usesBuilder matched, but nothing was reconstructable - saying
+      // "passed" here would claim a validation that never happened
+      return {
+        findings: [],
+        renderable: false,
+        helperNote: "",
+        nothingChecked: "builder call found but no view could be reconstructed",
+      };
+    }
+    for (const node of prep.nodes) {
+      // the model derived from the class is what makes the binding-path
+      // rules possible - a path nothing in the model has stays silently
+      // empty at runtime, and without passing it those rules never run
+      findings.push(
+        ...checkNodes(node, {
+          data,
+          minUi5,
+          allow,
+          distribution,
+          model: prep.model,
+          shape: prep.modelShape,
+        })
+      );
+    }
+    // rules that need the class itself, not just the view tree
+    findings.push(...checkAbapRules(text));
+    renderable = prep.docs.length > 0 && prep.helperTokens === 0;
+    if (prep.helperTokens > 0) {
+      helperNote = " (render gate skipped - view built in helper methods)";
+    }
+  }
+
+  // severity, wording and the line/column behind each recorded offset - the
+  // directives are keyed by line, so this has to happen before they are
+  // applied
+  annotate(findings, text);
+  findings = applyRules(findings, options.rules, fileName);
+  findings = applyDirectives(findings, text);
+  return { findings, renderable, helperNote };
+}
+
+/**
+ * The findings of a document as it stands right now, memoised on its version.
+ *
+ * The quick-fix provider needs them, and it must not work off the findings
+ * behind the diagnostics currently shown: a fix carries character offsets into
+ * the source it was computed from, and between the last check and the moment
+ * the lightbulb is opened the buffer may have moved. Recomputing is a few
+ * milliseconds - applying a stale offset would corrupt the file.
+ */
+let memo: { key: string; version: number; findings: PropertyFinding[] } | undefined;
+
+export function findingsNow(doc: vscode.TextDocument): PropertyFinding[] {
+  const key = doc.uri.toString();
+  if (memo && memo.key === key && memo.version === doc.version) {
+    return memo.findings;
+  }
+  if (!isCheckable(doc)) {
+    // Code actions are requested for every ABAP file the cursor moves in;
+    // reconstructing a view from one that builds none is pure cost.
+    return [];
+  }
+  const text = doc.getText();
+  const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
+  const gate = runGate(text, doc.uri.fsPath || doc.fileName, isXml, optionsFor(doc));
+  memo = { key, version: doc.version, findings: gate.findings };
+  return gate.findings;
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling
+// ---------------------------------------------------------------------------
+
+interface CheckRequest {
+  /** Allow the external render gate (never on a keystroke). */
+  render: boolean;
+  /** Say the result out loud - only the on-demand command does. */
+  announce: boolean;
+}
+
+/** Debounce timers and run generations, both per document. The old global
+ *  "one check at a time" flag silently dropped the second of two quick saves;
+ *  a generation per URI supersedes only the run it replaces. */
+const timers = new Map<string, NodeJS.Timeout>();
+const generations = new Map<string, number>();
+
+function schedule(
+  doc: vscode.TextDocument,
+  delay: number,
+  request: CheckRequest,
+  diagnostics: vscode.DiagnosticCollection,
+  log: (m: string) => void
+): void {
+  const key = doc.uri.toString();
+  const existing = timers.get(key);
+  if (existing) {
+    clearTimeout(existing);
+  }
+  timers.set(
+    key,
+    setTimeout(() => {
+      timers.delete(key);
+      void checkDocument(doc, diagnostics, log, request);
+    }, delay)
+  );
+}
+
+function cancelScheduled(uri: vscode.Uri): void {
+  const key = uri.toString();
+  const timer = timers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    timers.delete(key);
+  }
+  // Any run still in flight for this document is now stale.
+  generations.set(key, (generations.get(key) ?? 0) + 1);
+}
 
 async function checkDocument(
   doc: vscode.TextDocument,
   diagnostics: vscode.DiagnosticCollection,
   log: (m: string) => void,
-  announce: boolean
+  request: CheckRequest
 ): Promise<void> {
-  if (running) {
+  const key = doc.uri.toString();
+  const gen = (generations.get(key) ?? 0) + 1;
+  generations.set(key, gen);
+  const superseded = () => generations.get(key) !== gen;
+
+  const options = optionsFor(doc);
+  const versionLine = describeOptions(options);
+  if (versionLine !== lastVersionLine) {
+    lastVersionLine = versionLine;
+    log(
+      `view-check: ${versionLine}, metadata from ${snapshotUi5Version() ?? "unknown"}`
+    );
+    const broken = snapshotError();
+    if (broken) {
+      log(
+        `view-check: the bundled UI5 metadata could not be read (${broken}) - ` +
+          "the property gate has nothing to check against"
+      );
+    }
+  }
+  if (options.error && request.announce) {
+    vscode.window.showWarningMessage(
+      `abap2UI5: ${path.basename(options.configFile ?? "abap2ui5lint.jsonc")} ` +
+        `could not be read (${options.error}) - checking with the VS Code settings instead.`
+    );
+  }
+
+  const text = doc.getText();
+  const name = path.basename(doc.fileName);
+  const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
+  const gate = runGate(text, doc.uri.fsPath || name, isXml, options);
+
+  if (gate.nothingChecked) {
+    diagnostics.delete(doc.uri);
+    log(`view-check: ${name} - nothing checkable (${gate.nothingChecked})`);
+    if (request.announce) {
+      vscode.window.showInformationMessage(
+        `abap2UI5: nothing to check in ${name} - ${gate.nothingChecked}.`
+      );
+    }
     return;
   }
-  running = true;
-  try {
-    const cfg = config();
-    const minUi5 = cfg.get<string>("viewCheck.minUi5", "1.71");
-    const distribution = cfg.get<string>("viewCheck.distribution", "sapui5");
-    if (!versionLogged) {
-      versionLogged = true;
-      const dist = distribution === "openui5" ? "OpenUI5" : "SAPUI5";
-      log(
-        `view-check: target ${dist} ${minUi5}, ` +
-          `metadata from ${snapshotUi5Version() ?? "unknown"}`
-      );
-    }
-    const allow = cfg.get<string[]>("viewCheck.allow", []);
-    const text = doc.getText();
-    const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
 
-    // property gate - in-process, instant
-    const findings: PropertyFinding[] = [];
-    let renderable = true;
-    let helperNote = "";
-    if (isXml) {
-      findings.push(
-        ...checkNodes(parseXml(text), { data: snapshot(), minUi5, allow, distribution })
+  let helperNote = gate.helperNote;
+  let renderErrors: string[] = [];
+  if (
+    request.render &&
+    config().get<boolean>("viewCheck.render", false) &&
+    gate.renderable &&
+    !spawnFailed
+  ) {
+    const render = await runRenderGate(doc, log);
+    if (superseded()) {
+      return; // the document moved on while Chromium was busy
+    }
+    renderErrors = render?.renderErrors ?? [];
+    if (render?.skippedRender) {
+      helperNote = " (render gate skipped - view built in helper methods)";
+    }
+  }
+
+  const diags = toDiagnostics(doc, gate.findings, renderErrors);
+  diagnostics.set(doc.uri, diags);
+  log(
+    `view-check: ${name} - ${gate.findings.length} finding(s), ` +
+      `${renderErrors.length} render error(s)${helperNote}`
+  );
+  if (request.announce) {
+    if (diags.length === 0) {
+      vscode.window.showInformationMessage(
+        `abap2UI5: view check passed for ${name}${helperNote}.`
       );
     } else {
-      const prep = prepareAbap(text);
-      if (!prep.usesBuilder) {
-        diagnostics.delete(doc.uri);
-        log(
-          `view-check: ${path.basename(doc.fileName)} - nothing checkable ` +
-            "(no z2ui5_cl_ai_xml=>factory call found)"
-        );
-        if (announce) {
-          vscode.window.showInformationMessage(
-            `abap2UI5: nothing to check in ${path.basename(doc.fileName)} - ` +
-              "the checker looks for views built with z2ui5_cl_ai_xml=>factory."
-          );
-        }
-        return;
-      }
-      if (prep.nodes.length === 0) {
-        // usesBuilder matched, but nothing was reconstructable - saying
-        // "passed" here would claim a validation that never happened
-        diagnostics.delete(doc.uri);
-        log(
-          `view-check: ${path.basename(doc.fileName)} - builder call found ` +
-            "but no view could be reconstructed, nothing was validated"
-        );
-        if (announce) {
-          vscode.window.showInformationMessage(
-            `abap2UI5: no view could be reconstructed from ` +
-              `${path.basename(doc.fileName)} - nothing was validated.`
-          );
-        }
-        return;
-      }
-      for (const node of prep.nodes) {
-        // the model derived from the class is what makes the binding-path
-        // rules possible - a path nothing in the model has stays silently
-        // empty at runtime, and without passing it those rules never run
-        findings.push(
-          ...checkNodes(node, {
-            data: snapshot(),
-            minUi5,
-            allow,
-            distribution,
-            model: prep.model,
-            shape: prep.modelShape,
-          })
-        );
-      }
-      // rules that need the class itself, not just the view tree
-      findings.push(...checkAbapRules(text));
-      renderable = prep.docs.length > 0 && prep.helperTokens === 0;
-      if (prep.helperTokens > 0) {
-        helperNote =
-          " (render gate skipped - view built in helper methods)";
-      }
+      vscode.window.showWarningMessage(
+        `abap2UI5: view check found ${diags.length} problem(s) in ` +
+          `${name} - see the Problems panel.`
+      );
     }
-
-    // severity, wording and the line/column behind each recorded offset
-    annotate(findings, text);
-
-    // render gate - optional, external
-    let renderErrors: string[] = [];
-    if (cfg.get<boolean>("viewCheck.render", false) && renderable && !spawnFailed) {
-      const render = await runRenderGate(doc, log);
-      renderErrors = render?.renderErrors ?? [];
-      if (render?.skippedRender) {
-        helperNote = " (render gate skipped - view built in helper methods)";
-      }
-    }
-
-    const diags = toDiagnostics(doc, findings, renderErrors);
-    diagnostics.set(doc.uri, diags);
-    log(
-      `view-check: ${path.basename(doc.fileName)} - ` +
-        `${findings.length} finding(s), ${renderErrors.length} render error(s)${helperNote}`
-    );
-    if (announce) {
-      if (diags.length === 0) {
-        vscode.window.showInformationMessage(
-          `abap2UI5: view check passed for ${path.basename(doc.fileName)}${helperNote}.`
-        );
-      } else {
-        vscode.window.showWarningMessage(
-          `abap2UI5: view check found ${diags.length} problem(s) in ` +
-            `${path.basename(doc.fileName)} - see the Problems panel.`
-        );
-      }
-    }
-  } finally {
-    running = false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Whole workspace
+// ---------------------------------------------------------------------------
+
+/** File patterns the workspace sweep looks at - the same shapes the CLI
+ *  collects. */
+const WORKSPACE_GLOB = "**/*.{abap,view.xml,fragment.xml}";
+
+/**
+ * Checks every checkable file in the workspace, the way CI does, and fills
+ * the Problems panel with the result. The on-save check only ever sees what
+ * someone happened to open; this is the answer to "will the linter gate pass
+ * before I push?".
+ */
+async function checkWorkspace(
+  diagnostics: vscode.DiagnosticCollection,
+  log: (m: string) => void
+): Promise<void> {
+  const files = await vscode.workspace.findFiles(
+    WORKSPACE_GLOB,
+    "**/{node_modules,.git,dist,out}/**"
+  );
+  if (!files.length) {
+    vscode.window.showInformationMessage(
+      "abap2UI5: no ABAP or view files found in this workspace."
+    );
+    return;
+  }
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "abap2UI5: checking views",
+      cancellable: true,
+    },
+    async (progress, token) => {
+      let checked = 0;
+      let problems = 0;
+      for (const [index, uri] of files.entries()) {
+        if (token.isCancellationRequested) {
+          break;
+        }
+        progress.report({
+          message: `${index + 1}/${files.length} - ${path.basename(uri.fsPath)}`,
+          increment: 100 / files.length,
+        });
+        let text: string;
+        try {
+          text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+        } catch {
+          continue;
+        }
+        const isXml = VIEW_XML_RE.test(uri.fsPath);
+        if (!isXml && !usesBuilder(text)) {
+          continue;
+        }
+        const options = resolveOptions(path.dirname(uri.fsPath), {
+          minUi5: config().get<string>("viewCheck.minUi5", "1.71"),
+          distribution: config().get<string>("viewCheck.distribution", "sapui5"),
+          allow: config().get<string[]>("viewCheck.allow", []),
+        });
+        const gate = runGate(text, uri.fsPath, isXml, options);
+        if (gate.nothingChecked) {
+          continue;
+        }
+        checked++;
+        // The file is opened as a text document so the finding ranges are
+        // computed against real lines, exactly like the on-save check does.
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const diags = toDiagnostics(doc, gate.findings, []);
+        diagnostics.set(uri, diags);
+        problems += diags.length;
+      }
+      log(`view-check: workspace sweep - ${checked} file(s), ${problems} problem(s)`);
+      vscode.window.showInformationMessage(
+        problems
+          ? `abap2UI5: ${problems} problem(s) in ${checked} file(s) - see the Problems panel.`
+          : `abap2UI5: ${checked} file(s) checked, nothing found.`
+      );
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
 
 export function registerViewCheck(
   context: vscode.ExtensionContext,
@@ -498,8 +745,38 @@ export function registerViewCheck(
   const diagnostics =
     vscode.languages.createDiagnosticCollection("abap2ui5-view-check");
 
+  const check = (doc: vscode.TextDocument, delay: number, request: CheckRequest) =>
+    schedule(doc, delay, request, diagnostics, log);
+
+  /** Re-checks everything currently open - after a setting, a config file or
+   *  the linter's own opinion changed. */
+  const recheckOpen = () => {
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (isCheckable(editor.document)) {
+        check(editor.document, 0, { render: false, announce: false });
+      }
+    }
+  };
+
+  // A config file is part of the answer for every file it governs, so a
+  // change to one invalidates the cache and re-checks what is open.
+  const configWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/abap2ui5lint.{json,jsonc}"
+  );
+  const configChanged = () => {
+    clearConfigCache();
+    lastVersionLine = "";
+    recheckOpen();
+  };
+
   context.subscriptions.push(
     diagnostics,
+    configWatcher,
+    configWatcher.onDidChange(configChanged),
+    configWatcher.onDidCreate(configChanged),
+    configWatcher.onDidDelete(configChanged),
+    { dispose: () => timers.forEach((t) => clearTimeout(t)) },
+
     vscode.commands.registerCommand("abap2ui5.checkViews", async () => {
       const doc = pickDocument();
       if (!doc || !isCheckable(doc)) {
@@ -516,17 +793,54 @@ export function registerViewCheck(
         );
         return;
       }
-      await checkDocument(doc, diagnostics, log, true);
+      cancelScheduled(doc.uri);
+      await checkDocument(doc, diagnostics, log, { render: true, announce: true });
     }),
+
+    vscode.commands.registerCommand("abap2ui5.checkWorkspace", () =>
+      checkWorkspace(diagnostics, log)
+    ),
+
+    // Saving is the moment the expensive gate is allowed to run.
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!config().get<boolean>("viewCheck.onSave", true)) {
+      if (!config().get<boolean>("viewCheck.onSave", true) || !isCheckable(doc)) {
         return;
       }
-      if (!isCheckable(doc)) {
-        return;
-      }
-      void checkDocument(doc, diagnostics, log, false);
+      check(doc, 0, { render: true, announce: false });
     }),
-    vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.delete(doc.uri))
+
+    // Typing: the property gate only, debounced. It is in-process and needs
+    // no I/O, so the cost is a few milliseconds per pause.
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (!config().get<boolean>("viewCheck.live", true)) {
+        return;
+      }
+      if (!e.contentChanges.length || !isCheckable(e.document)) {
+        return;
+      }
+      check(e.document, LIVE_DEBOUNCE_MS, { render: false, announce: false });
+    }),
+
+    // Opening a file should show what is wrong with it, without a save first.
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (isCheckable(doc)) {
+        check(doc, 0, { render: false, announce: false });
+      }
+    }),
+
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      cancelScheduled(doc.uri);
+      diagnostics.delete(doc.uri);
+    }),
+
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration(`${CONFIG_SECTION}.viewCheck`)) {
+        lastVersionLine = "";
+        recheckOpen();
+      }
+    })
   );
+
+  // Whatever is already open when the extension activates.
+  recheckOpen();
 }

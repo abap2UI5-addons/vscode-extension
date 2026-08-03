@@ -2,7 +2,7 @@
   "name": "abap2ui5",
   "displayName": "abap2UI5",
   "description": "Develop abap2UI5 apps in VS Code: F9 launches a z2ui5_if_app class in an embedded preview, reload on activation, static view checks, the abap2UI5 MCP server for AI agents, snippets.",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "publisher": "abap2ui5-local",
   "license": "MIT",
   "private": true,
@@ -30,7 +30,20 @@
     "url": "https://github.com/abap2UI5/vscode-extension.git"
   },
   "main": "./dist/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:abap"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "The view check and the MCP server can be told which program to start. Those settings are read from your user settings only, so a repository cannot point them at something else - but the render gate and the MCP server do start processes, which is why this is limited rather than unconditional.",
+      "restrictedConfigurations": [
+        "abap2ui5.viewCheck.command",
+        "abap2ui5.mcp.command",
+        "abap2ui5.mcp.reposRoot"
+      ]
+    }
+  },
   "contributes": {
     "commands": [
       {
@@ -49,9 +62,19 @@
         "icon": "$(zap)"
       },
       {
+        "command": "abap2ui5.runRecent",
+        "title": "abap2UI5: Run a Recently Launched App",
+        "icon": "$(history)"
+      },
+      {
         "command": "abap2ui5.setLaunchUrl",
         "title": "abap2UI5: Set Launch URL",
         "icon": "$(link)"
+      },
+      {
+        "command": "abap2ui5.selectSystem",
+        "title": "abap2UI5: Select System",
+        "icon": "$(server-environment)"
       },
       {
         "command": "abap2ui5.resetCredentials",
@@ -69,6 +92,14 @@
         "command": "abap2ui5.checkViews",
         "title": "abap2UI5: Check Views (Static)",
         "icon": "$(checklist)"
+      },
+      {
+        "command": "abap2ui5.checkWorkspace",
+        "title": "abap2UI5: Check All Views in the Workspace"
+      },
+      {
+        "command": "abap2ui5.fixAll",
+        "title": "abap2UI5: Fix All View Findings in This File"
       },
       {
         "command": "abap2ui5.installRenderGate",
@@ -139,7 +170,34 @@
         "abap2ui5.launchUrlTemplate": {
           "type": "string",
           "default": "",
-          "markdownDescription": "URL template used to launch an abap2UI5 app. The `{class}` placeholder is replaced with the (upper-cased) class name.\n\nExample: `https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100`"
+          "markdownDescription": "URL template used to launch an abap2UI5 app. The `{class}` placeholder is replaced with the (upper-cased) class name.\n\nExample: `https://host:44300/sap/bc/z2ui5?app_start={class}&sap-client=100`\n\nFor more than one system use `#abap2ui5.systems#` instead - this setting is the single-system shorthand and stays the first entry of the list."
+        },
+        "abap2ui5.systems": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "url"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Shown in the picker and the status bar, e.g. DEV or Sandbox."
+              },
+              "url": {
+                "type": "string",
+                "description": "Launch URL template with the {class} placeholder."
+              }
+            }
+          },
+          "markdownDescription": "The systems F9 can launch against. The active one is picked with the command **\"abap2UI5: Select System\"** and is remembered per window, so two windows can work against two systems at once. Credentials are stored per host, so switching does not ask again.\n\n```json\n[\n  { \"name\": \"DEV\", \"url\": \"https://dev:44300/sap/bc/z2ui5?app_start={class}&sap-client=100\" },\n  { \"name\": \"Sandbox\", \"url\": \"https://box:44300/sap/bc/z2ui5?app_start={class}\" }\n]\n```"
+        },
+        "abap2ui5.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show *Run*, *Activate & reload* and *Check views* above the class definition of an abap2UI5 app."
         },
         "abap2ui5.openMode": {
           "type": "string",
@@ -182,10 +240,16 @@
           "default": true,
           "markdownDescription": "Run the static view check every time a checkable file is saved: an ABAP class building views with `z2ui5_cl_ai_xml`, or a raw `*.view.xml` / `*.fragment.xml`. Findings appear in the Problems panel. The command *\"abap2UI5: Check Views (Static)\"* runs the same check on demand."
         },
+        "abap2ui5.viewCheck.live": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Also check while typing, shortly after each pause. Only the bundled property gate runs on a keystroke - it works in-process and needs no I/O; the render gate stays on save and on demand."
+        },
         "abap2ui5.viewCheck.command": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Command that runs the [abap2UI5-linter](https://github.com/abap2UI5/linter) CLI **for the render gate** - the property gate is bundled with the extension and needs no command. Leave empty for the default: a local checkout under `#abap2ui5.mcp.reposRoot#` when present (runs with VS Code's own Node.js), otherwise `npx --yes github:abap2UI5/linter`.\n\nExample for a local clone: `node /home/me/linter/cli.mjs`"
+          "scope": "machine",
+          "markdownDescription": "Command that runs the [abap2UI5-linter](https://github.com/abap2UI5/linter) CLI **for the render gate** - the property gate is bundled with the extension and needs no command. Leave empty for the default: a local checkout under `#abap2ui5.mcp.reposRoot#` when present (runs with VS Code's own Node.js), otherwise `npx --yes github:abap2UI5/linter`.\n\nExample for a local clone: `node /home/me/linter/cli.mjs`\n\nThis setting names a program the extension starts, so it is read from your user settings only - a cloned repository cannot point it somewhere else."
         },
         "abap2ui5.viewCheck.distribution": {
           "type": "string",
@@ -198,12 +262,12 @@
             "OpenUI5 - the open-source distribution. Controls from SAPUI5-only libraries are reported: they do not exist there."
           ],
           "default": "sapui5",
-          "markdownDescription": "Which UI5 distribution the target system serves. SAPUI5 ships libraries OpenUI5 does not (`sap.ui.comp`, `sap.suite.*`, `sap.ushell`, `sap.fe`, `sap.viz`, ...), so a SmartTable is fine on SAPUI5 and a guaranteed runtime error on OpenUI5. With `openui5` such controls are reported as errors."
+          "markdownDescription": "Which UI5 distribution the target system serves. SAPUI5 ships libraries OpenUI5 does not (`sap.ui.comp`, `sap.suite.*`, `sap.ushell`, `sap.fe`, `sap.viz`, ...), so a SmartTable is fine on SAPUI5 and a guaranteed runtime error on OpenUI5. With `openui5` such controls are reported as errors.\n\nA workspace's `abap2ui5lint.jsonc` wins over this setting - that is the file CI checks against."
         },
         "abap2ui5.viewCheck.minUi5": {
           "type": "string",
           "default": "1.71",
-          "markdownDescription": "The UI5 version to check against - **the version your system runs**. A control or property introduced after it is reported (it would not exist on your system), and a deprecation is only reported once it is in effect at that version. The metadata itself comes from the bundled snapshot; see the abap2UI5 output channel for the version it was generated from."
+          "markdownDescription": "The UI5 version to check against - **the version your system runs**. A control or property introduced after it is reported (it would not exist on your system), and a deprecation is only reported once it is in effect at that version. The metadata itself comes from the bundled snapshot; see the abap2UI5 output channel for the version it was generated from.\n\nA workspace's `abap2ui5lint.jsonc` wins over this setting - that is the file CI checks against."
         },
         "abap2ui5.viewCheck.render": {
           "type": "boolean",
@@ -216,7 +280,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Accepted deviations for the property gate, e.g. `sap.m.GenericTile.systemInfo` - each entry is passed to the checker as `--allow`."
+          "markdownDescription": "Accepted deviations for the property gate, e.g. `sap.m.GenericTile.systemInfo` - each entry is passed to the checker as `--allow`. Merges with the `allow` list of a workspace's `abap2ui5lint.jsonc`.\n\nTo waive a single line rather than a whole rule, put the linter's own directive above it: `\" abap2ui5lint-disable-next-line unknown-binding-path -- filled in a LOOP`. The quick fix on any finding writes it for you, and CI honours it too."
         },
         "abap2ui5.mcp.enabled": {
           "type": "boolean",
@@ -226,12 +290,14 @@
         "abap2ui5.mcp.command": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Command that starts the MCP server. Leave empty for the default: a local checkout under `#abap2ui5.mcp.reposRoot#` when present, otherwise `npx --yes github:abap2UI5/ai-mcp`.\n\nExample for a local clone: `node /home/me/ai-mcp/server.mjs`"
+          "scope": "machine",
+          "markdownDescription": "Command that starts the MCP server. Leave empty for the default: a local checkout under `#abap2ui5.mcp.reposRoot#` when present, otherwise `npx --yes github:abap2UI5/ai-mcp`.\n\nExample for a local clone: `node /home/me/ai-mcp/server.mjs`\n\nThis setting names a program the extension starts, so it is read from your user settings only - a cloned repository cannot point it somewhere else."
         },
         "abap2ui5.mcp.reposRoot": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Folder containing the checkouts the MCP server orchestrates (`abap2UI5`, `ai-demokit`, and optionally `linter`, `ai-mcp`). The matching `A2UI5_HOME` / `AI_DEMOKIT_HOME` / `AI_VIEW_CHECK_HOME` environment variables are passed to the server, and local `ai-mcp` / `linter` checkouts found here are preferred over downloading via npx."
+          "scope": "machine",
+          "markdownDescription": "Folder containing the checkouts the MCP server orchestrates (`abap2UI5`, `ai-demokit`, and optionally `linter`, `ai-mcp`). The matching `A2UI5_HOME` / `AI_DEMOKIT_HOME` / `AI_VIEW_CHECK_HOME` environment variables are passed to the server, and local `ai-mcp` / `linter` checkouts found here are preferred over downloading via npx.\n\nWhat is found here decides which programs are started, so it is read from your user settings only."
         }
       }
     },
@@ -248,7 +314,8 @@
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "vsix": "vsce package --allow-missing-repository",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "node esbuild.js --tests && node --test dist-test/*.test.cjs"
   },
   "devDependencies": {
     "@abap2ui5/linter": "github:abap2UI5/linter#ecf38bfc3d3e32630ad9fba6b81b8e48a67052c3",

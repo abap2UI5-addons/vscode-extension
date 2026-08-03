@@ -59,6 +59,10 @@ declare module "@abap2ui5/linter/properties" {
     message?: string;
     line?: number;
     column?: number;
+    /** Character spans in the checked source that correct the finding
+     *  mechanically. Only the rules whose correction needs no decision carry
+     *  them - a fix that has to guess is deliberately absent. */
+    fixes?: Array<{ start: number; end: number; text: string }>;
   }
 
   export function loadSnapshot(file?: string): unknown;
@@ -94,6 +98,10 @@ declare module "@abap2ui5/linter/findings" {
 
   export const SEVERITIES: Severity[];
 
+  /** Every rule id the linter can report - the registry a `rules` block and
+   *  the extension's own rule-documentation links are validated against. */
+  export const RULES: readonly string[];
+
   export function severityOf(finding: { type: string }): Severity;
 
   export function describe(finding: PropertyFinding): string;
@@ -104,4 +112,41 @@ declare module "@abap2ui5/linter/findings" {
     findings: T[],
     source: string
   ): T[];
+
+  /** Drops the findings a `rules` entry switched off (or excluded for this
+   *  file) and applies its severity overrides. */
+  export function applyRules<T extends PropertyFinding>(
+    findings: T[],
+    rules: Record<string, unknown> | undefined,
+    file?: string
+  ): T[];
+
+  /** Drops the findings an `abap2ui5lint-disable…` directive in the source
+   *  suppresses. Returns the input array unchanged when it holds none. */
+  export function applyDirectives<T extends PropertyFinding>(
+    findings: T[],
+    source: string
+  ): T[];
+}
+
+declare module "@abap2ui5/linter/config" {
+  /** File names discovered, in order - jsonc first. */
+  export const CONFIG_NAMES: string[];
+  export const CONFIG_NAME: string;
+
+  /** Walks from `dir` upward, returns the first config file or null. */
+  export function findConfigFrom(dir: string): string | null;
+
+  /** Parses and validates a config file. Throws with a precise message on
+   *  bad input - an unknown key or rule id fails loudly by design. */
+  export function loadConfig(file: string): {
+    paths?: string[];
+    minUi5?: string;
+    distribution?: string;
+    allow?: string[];
+    render?: boolean;
+    properties?: boolean;
+    failOn?: string;
+    rules?: Record<string, unknown>;
+  };
 }
