@@ -217,6 +217,23 @@ ${BASE_CSS}
   }
   .badge:hover { opacity: 1; }
   body[data-stale="true"] .badge { display: inline-flex; }
+  /* Runtime errors the app reported since the last (re)load. */
+  .errors {
+    display: none;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.82em;
+    white-space: nowrap;
+    color: var(--vscode-editorError-foreground, #f85149);
+    border: 1px solid currentColor;
+    opacity: 0.85;
+    cursor: pointer;
+  }
+  .errors:hover { opacity: 1; }
+  .errors.show { display: inline-flex; }
   .url {
     min-width: 0;
     flex: 1;
@@ -350,6 +367,7 @@ ${BASE_CSS}
     <span class="dot" id="dot"></span>
     <span class="name" id="name">${className}</span>
     <button class="badge" id="stale" title="The source was saved but not activated - the preview still shows the active version. Click to reload it anyway.">not activated</button>
+    <button class="errors" id="errors" title="Runtime errors the app reported since the last load. Click to open the abap2UI5 output log."></button>
     <span class="url" id="url" title="${externalUrl}">${urlLabel}</span>
     <div class="seg" role="group" aria-label="Preview size">
       <button id="d-desktop" data-device="desktop" aria-pressed="true" title="Desktop width">${icon("desktop")}</button>
@@ -404,6 +422,18 @@ ${BASE_CSS}
   let toastTimer;
   let startedAt = Date.now();
 
+  // Runtime errors forwarded by the hook the proxy plants into the app.
+  const errorsEl = document.getElementById('errors');
+  let errorCount = 0;
+  function setErrorCount(count) {
+    errorCount = count;
+    errorsEl.textContent = count === 1 ? '1 error' : count + ' errors';
+    errorsEl.classList.toggle('show', count > 0);
+  }
+  errorsEl.addEventListener('click', () => {
+    vscodeApi.postMessage({ type: 'showRuntimeLog' });
+  });
+
   // Device width survives a webview being hidden and restored.
   const saved = vscodeApi.getState() || {};
   setDevice(saved.device || 'desktop', false);
@@ -436,6 +466,7 @@ ${BASE_CSS}
   function load(url, message) {
     beginLoad(message);
     body.dataset.stale = 'false'; // whatever is loading now is the current active version
+    setErrorCount(0); // errors of the previous load are history now
     frame.src = url; // reassigning src is what forces the reload
   }
 
@@ -481,9 +512,20 @@ ${BASE_CSS}
   load(frameUrl, 'Starting ' + nameEl.textContent + '\\u2026');
 
   // The host sends 'load' on F9, on activation and on the reload command, and
-  // 'stale' when the shown class was saved without being activated.
+  // 'stale' when the shown class was saved without being activated. The app
+  // iframe posts runtime errors, marked so nothing else is ever mistaken for
+  // one - they are counted here and relayed to the host for the output log.
   window.addEventListener('message', (event) => {
     const msg = event.data || {};
+    if (msg.__abap2ui5Runtime) {
+      setErrorCount(errorCount + 1);
+      vscodeApi.postMessage({
+        type: 'runtimeError',
+        kind: String(msg.__abap2ui5Runtime),
+        text: String(msg.text || ''),
+      });
+      return;
+    }
     if (msg.type === 'stale') {
       // Only the first save after a load says it out loud; the badge stays.
       if (msg.reason && body.dataset.stale !== 'true') { showToast(msg.reason); }

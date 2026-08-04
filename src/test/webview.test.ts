@@ -1,8 +1,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { welcomeHtml } from "../webview";
+import { previewHtml, welcomeHtml } from "../webview";
 
 const BASE = { nonce: "n0nce", hasLaunchUrl: true } as const;
+
+test("the preview carries the runtime-error badge, reset on every load", () => {
+  const html = previewHtml({
+    frameUrl: "http://127.0.0.1:1234/sap/bc/z2ui5?app_start=ZCL_X",
+    externalUrl: "https://host:44300/sap/bc/z2ui5?app_start=ZCL_X",
+    className: "ZCL_X",
+    theme: "",
+    language: "",
+    nonce: "n0nce",
+  });
+  assert.ok(html.includes('id="errors"'));
+  // The relay: the marked iframe messages reach the host as runtimeError.
+  assert.ok(html.includes("__abap2ui5Runtime"));
+  assert.ok(html.includes("runtimeError"));
+  // A reload starts a clean count.
+  assert.ok(html.includes("setErrorCount(0)"));
+});
 
 test("in panel mode the empty state promises the app right here", () => {
   const html = welcomeHtml({ ...BASE, openMode: "panel" });

@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { abapContextAt, abapNsMap, xmlContextAt, xmlNsMap } from "../context";
+import {
+  abapBindingContextAt,
+  abapContextAt,
+  abapNsMap,
+  xmlContextAt,
+  xmlNsMap,
+} from "../context";
 
 /** The cursor is marked with `‸` in the fixtures - easier to read than an
  *  offset, and it keeps the fixture and the position from drifting apart. */
@@ -140,4 +146,184 @@ test("raw XML: the tag name, an attribute and a value", () => {
 test("raw XML: between two tags there is nothing to offer", () => {
   assert.deepEqual(xmlNsMap('<mvc:View xmlns="sap.m">'), { "": "sap.m" });
   assert.equal(xmlAt('<mvc:View xmlns="sap.m">\n  ‸\n</mvc:View>'), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Binding paths
+// ---------------------------------------------------------------------------
+
+/** `items` is the only aggregation - enough resolution for these fixtures. */
+const isAggregation = (_control: string, member: string) => member === "items";
+
+function bindingAt(marked: string) {
+  const { source, offset } = at(marked);
+  return abapBindingContextAt(source, offset, isAggregation);
+}
+
+test("a { in a value literal is a binding being written", () => {
+  const context = bindingAt(
+    HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `{/NA‸` )"
+  );
+  assert.equal(context?.prefix, "/NA");
+  assert.deepEqual(context?.aggregations, []);
+});
+
+test("the replace span covers the whole path written so far", () => {
+  const { source, offset } = at(
+    HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `{/NA‸ME}` )"
+  );
+  const context = abapBindingContextAt(source, offset, isAggregation);
+  assert.equal(source.slice(context!.start, context!.end), "/NAME");
+});
+
+test("inside an aggregation template the bound path is known", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/TRAVELS"]);
+});
+
+test("nested aggregations stack, outermost first", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`\n" +
+      "    )->open( n = `List` )->a( n = `items` v = `{STOPS}`\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/TRAVELS", "STOPS"]);
+});
+
+test("a shut( ) closes its container's row context", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`\n" +
+      "    )->shut(\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, []);
+});
+
+test("a container's own attributes are outside its row context", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`" +
+      " )->a( n = `headerText` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, []);
+});
+
+test("the complex aggregation binding syntax still names its path", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{path: '/TRAVELS', templateShareable: false}`\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/TRAVELS"]);
+});
+
+test("named models, expressions and complex syntax are not completed", () => {
+  const base = HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = ";
+  assert.equal(bindingAt(base + "`{device>/NA‸` )"), undefined);
+  assert.equal(bindingAt(base + "`{= ${/A} + ‸` )"), undefined);
+  assert.equal(bindingAt(base + "`{path: '/NA‸'}` )"), undefined);
+});
+
+test("behind the closing brace the binding is over", () => {
+  assert.equal(
+    bindingAt(HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `{/NAME} ‸` )"),
+    undefined
+  );
+});
+
+test("a { in the n argument is not a binding", () => {
+  assert.equal(
+    bindingAt(HEAD + "    )->leaf( n = `Text` )->a( n = `{‸` )"),
+    undefined
+  );
+});
+
+test("an aggregation bound via client->_bind( ) still names its path", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = client->_bind( mt_travels )\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/MT_TRAVELS"]);
+});
+
+test("a structure component bound via _bind flattens like the framework does", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = client->_bind( val = ms_data-rows )\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/MS_DATA/ROWS"]);
+});
+
+// ---------------------------------------------------------------------------
+// Outline and events
+// ---------------------------------------------------------------------------
+
+test("the outline nests the way the builder does", () => {
+  const { viewOutline } = require("../context") as typeof import("../context");
+  const src =
+    HEAD +
+    "    )->open( n = `Page` )->a( n = `id` v = `main` )\n" +
+    "    )->leaf( n = `Text` )->a( n = `text` v = `Hi` )\n" +
+    "    )->shut(\n" +
+    "    )->leaf( n = `Button` ns = `m` ).\n";
+  const roots = viewOutline(src);
+  assert.equal(roots.length, 1);
+  const view = roots[0];
+  assert.equal(view.label, "mvc:View");
+  assert.equal(view.container, true);
+  assert.equal(view.children.length, 2); // Page, then the Button after shut
+  const page = view.children[0];
+  assert.equal(page.label, "Page");
+  assert.equal(page.id, "main");
+  assert.deepEqual(page.children.map((c: { label: string }) => c.label), ["Text"]);
+  assert.equal(view.children[1].label, "m:Button");
+  // a parent spans its children
+  assert.ok(page.end >= page.children[0].end);
+  assert.ok(view.end >= page.end);
+});
+
+test("a second factory( ) starts a second root", () => {
+  const { viewOutline } = require("../context") as typeof import("../context");
+  const src = HEAD + "    )->leaf( n = `Text` ).\n" + HEAD + "    )->leaf( n = `Input` ).\n";
+  const roots = viewOutline(src);
+  assert.equal(roots.length, 2);
+});
+
+test("event navigation finds the WHEN branch and the way back", () => {
+  const {
+    eventNameAt,
+    eventUsagesOf,
+    whenBranchOf,
+    whenNameAt,
+  } = require("../context") as typeof import("../context");
+  const src =
+    HEAD +
+    "    )->leaf( n = `Button` )->a( n = `press` v = client->_event( `GO` ) ).\n" +
+    "    CASE client->get( )-event.\n" +
+    "      WHEN `GO`.\n" +
+    "        do_something( ).\n" +
+    "    ENDCASE.\n";
+  const inEvent = src.indexOf("`GO`") + 2;
+  const ev = eventNameAt(src, inEvent);
+  assert.equal(ev?.name, "GO");
+  const target = whenBranchOf(src, "GO");
+  assert.ok(target !== undefined && target > src.indexOf("CASE"));
+  const inWhen = src.indexOf("WHEN `GO`") + 7;
+  const back = whenNameAt(src, inWhen);
+  assert.equal(back?.name, "GO");
+  assert.equal(eventUsagesOf(src, "GO").length, 1);
+});
+
+test("a literal outside an _event call is not an event", () => {
+  const { eventNameAt } = require("../context") as typeof import("../context");
+  const src = HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `GO` ).";
+  assert.equal(eventNameAt(src, src.lastIndexOf("`GO`") + 2), undefined);
 });

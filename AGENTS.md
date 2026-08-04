@@ -27,14 +27,25 @@ find a German string anywhere, it is a leftover — translate it.
 
 | Path | Purpose |
 | --- | --- |
-| `src/extension.ts` | Activation, the F9 command, the Ctrl+F3 activate-and-reload command, webview tab and panel, reload handling |
+| `src/extension.ts` | Desktop activation, the F9 command, the Ctrl+F3 activate-and-reload command, webview tab and panel, reload handling |
+| `src/web/extension.ts` | Web-host activation (vscode.dev/BAS): loads the snapshot via `workspace.fs`, registers the in-process features only |
+| `src/webcheck.ts` | The web build's view check: the property gate scheduled live/on-save, settings only (no repo config, no render gate) |
+| `src/gate.ts` | The in-process property gate itself, shared by `viewcheck.ts` (desktop) and `webcheck.ts` (web) |
+| `src/diagnostics.ts` | Findings -> VS Code diagnostics (ranges, severities, rule links), shared by both checks |
+| `src/selector.ts` | The document selector all view providers share |
+| `src/template.ts` | The app-class skeleton both entries insert |
+| `src/ui5detect.ts` | Reads the system's `sap-ui-version.json` and offers to align the view-check settings |
+| `src/appsearch.ts` | "Run an App from the System": QuickPick over the ADT quick search |
 | `src/webview.ts` | HTML for the preview and the welcome screen (theme variables, CSP nonce, theme/language pickers, the open-mode-aware empty state) |
 | `src/proxy.ts` | Local reverse proxy that injects basic auth so the embedded iframe avoids a 401 |
 | `src/systems.ts` | Named launch profiles, the active-system state, credentials per host |
 | `src/viewcheck.ts` | Static view checks via abap2UI5-linter: live + on-save + on-demand + workspace, findings as diagnostics |
 | `src/lintconfig.ts` | Discovers and merges the repo's `abap2ui5lint.jsonc` with the VS Code settings |
 | `src/quickfix.ts` | Code actions: the linter's own fixes, "fix all", and the disable-directive waiver |
-| `src/language.ts` | Completion and hover, wired from `context.ts` + `metadata.ts` |
+| `src/language.ts` | Completion and hover, wired from `context.ts` + `metadata.ts` + `bindingpaths.ts` |
+| `src/bindingpaths.ts` | Binding-path offers from the model shape the linter derives (`prepareAbap( ).modelShape`) |
+| `src/xmlpreview.ts` | "Show Reconstructed XML View": virtual document + live refresh |
+| `src/xmlformat.ts` | Pretty-printer for the reconstructed view trees (`prepareAbap( ).nodes`) |
 | `src/codelens.ts` | Run / Activate & reload / Check views above the class definition |
 | `src/mcp.ts` | Registers the abap2UI5 MCP server (ai-mcp) for MCP clients in the window |
 | `src/snapshot.ts` | Loads the bundled UI5 metadata once, for the gate and the language features |
@@ -49,10 +60,11 @@ find a German string anywhere, it is a leftover — translate it.
 not committed.
 
 **The `vscode`-free boundary is load-bearing.** `abap.ts`, `urls.ts`,
-`context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts` and `webview.ts`
-(HTML strings only — the state it renders is passed in) must not import
-`vscode`: the test suite bundles them for plain Node, and an accidental import
-turns a unit test into a module-not-found error. Put the interesting logic
+`context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts`,
+`bindingpaths.ts`, `xmlformat.ts`, `gate.ts`, `template.ts`, `proxy.ts` and
+`webview.ts` (HTML strings only — the state it renders is passed in) must
+not import `vscode`: the test suite bundles them for plain Node, and an
+accidental import turns a unit test into a module-not-found error. Put the interesting logic
 there and keep the VS Code modules to plumbing — that is what made the regex
 bugs (`INTERFACES:`, a class name inside a comment) testable at all.
 
@@ -171,6 +183,17 @@ Facts an agent cannot see from the code but will trip over:
   runs against the *real* bundled snapshot on purpose: a regenerated snapshot
   that renamed a section would pass any mocked test and silently empty the
   completion list.
+- **The web bundle is built with node-builtin shims.** `esbuild.js` builds a
+  second bundle (`dist/web/extension.js`, platform `browser`) from
+  `src/web/extension.ts`; `fs`/`path`/`url` are aliased to
+  `scripts/web-shims/*` because the linter computes a default snapshot path
+  with them at import time. Nothing in the web graph may actually CALL `fs` —
+  the snapshot arrives via `vscode.workspace.fs` and `setSnapshotText( )`.
+  A module that newly pulls `child_process`/`os`/`crypto` into the web graph
+  breaks the web build, which is why the desktop-only plumbing stays behind
+  `extension.ts` and the shared pieces live in `gate.ts`/`diagnostics.ts`/
+  `selector.ts`. Desktop-only commands are hidden from the web palette with
+  `"when": "!isWeb"` entries under `menus.commandPalette`.
 - **The render gate is downloaded at runtime**, not bundled:
   `src/rendergate.ts` fetches `view-check-bundle.tgz` from the linter's
   rolling prerelease tag `render-gate-bundle` (published by the linter's

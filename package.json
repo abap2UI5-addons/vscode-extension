@@ -2,7 +2,7 @@
   "name": "abap2ui5",
   "displayName": "abap2UI5",
   "description": "Develop abap2UI5 apps in VS Code: F9 launches a z2ui5_if_app class in an embedded preview, reload on activation, static view checks, the abap2UI5 MCP server for AI agents, snippets.",
-  "version": "0.16.0",
+  "version": "0.18.0",
   "publisher": "abap2ui5",
   "license": "MIT",
   "private": true,
@@ -15,6 +15,8 @@
     "vscode": "^1.101.0"
   },
   "categories": [
+    "Programming Languages",
+    "Linters",
     "Snippets",
     "Other"
   ],
@@ -30,6 +32,7 @@
     "url": "https://github.com/abap2UI5/vscode-extension.git"
   },
   "main": "./dist/extension.js",
+  "browser": "./dist/web/extension.js",
   "activationEvents": [
     "onLanguage:abap"
   ],
@@ -65,6 +68,11 @@
         "command": "abap2ui5.runRecent",
         "title": "abap2UI5: Run a Recently Launched App",
         "icon": "$(history)"
+      },
+      {
+        "command": "abap2ui5.runFromSystem",
+        "title": "abap2UI5: Run an App from the System",
+        "icon": "$(search)"
       },
       {
         "command": "abap2ui5.previewInPanel",
@@ -113,6 +121,11 @@
         "title": "abap2UI5: Check All Views in the Workspace"
       },
       {
+        "command": "abap2ui5.showReconstructedXml",
+        "title": "abap2UI5: Show Reconstructed XML View",
+        "icon": "$(file-code)"
+      },
+      {
         "command": "abap2ui5.fixAll",
         "title": "abap2UI5: Fix All View Findings in This File"
       },
@@ -128,6 +141,64 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "abap2ui5.run",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.reload",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.activate",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.runRecent",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.runFromSystem",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.previewInPanel",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.previewInTab",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.revealApp",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.selectSystem",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.setLaunchUrl",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.resetCredentials",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.installRenderGate",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.checkWorkspace",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.fixAll",
+          "when": "!isWeb"
+        }
+      ],
       "editor/title": [
         {
           "command": "abap2ui5.run",
@@ -325,6 +396,79 @@
       {
         "language": "abap",
         "path": "./snippets/abap2ui5.code-snippets"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "abap2ui5.gettingStarted",
+        "title": "Get started with abap2UI5",
+        "description": "Launch an app with F9, keep the preview fresh on activation, and let the view check catch problems while you type.",
+        "steps": [
+          {
+            "id": "connect",
+            "title": "Point the extension at your system",
+            "description": "Set the launch URL of your abap2UI5 endpoint - `{class}` is the placeholder for the app class.\n[Set Launch URL](command:abap2ui5.setLaunchUrl)",
+            "media": {
+              "markdown": "media/walkthrough/connect.md"
+            },
+            "completionEvents": [
+              "onCommand:abap2ui5.setLaunchUrl",
+              "onSettingChanged:abap2ui5.launchUrlTemplate"
+            ]
+          },
+          {
+            "id": "run",
+            "title": "Run an app with F9",
+            "description": "With the cursor in a class implementing `z2ui5_if_app`, press F9 - the app opens next to the source.",
+            "media": {
+              "markdown": "media/walkthrough/run.md"
+            },
+            "completionEvents": [
+              "onCommand:abap2ui5.run"
+            ]
+          },
+          {
+            "id": "activate",
+            "title": "Activate and reload with Ctrl+F3",
+            "description": "Only activation changes what the server runs - Ctrl+F3 activates through your ABAP tooling and reloads the preview.",
+            "media": {
+              "markdown": "media/walkthrough/activate.md"
+            },
+            "completionEvents": [
+              "onCommand:abap2ui5.activate"
+            ]
+          },
+          {
+            "id": "viewcheck",
+            "title": "Let the view check catch problems",
+            "description": "Typos, too-new controls and dead bindings land in the Problems panel while you type.\n[Check Current File](command:abap2ui5.checkViews)",
+            "media": {
+              "markdown": "media/walkthrough/viewcheck.md"
+            },
+            "completionEvents": [
+              "onCommand:abap2ui5.checkViews"
+            ]
+          },
+          {
+            "id": "xmlview",
+            "title": "Read the view as XML",
+            "description": "See the XML the builder calls produce, live beside the class - findings mirrored, every line clickable.\n[Show Reconstructed XML](command:abap2ui5.showReconstructedXml)",
+            "media": {
+              "markdown": "media/walkthrough/xmlview.md"
+            },
+            "completionEvents": [
+              "onCommand:abap2ui5.showReconstructedXml"
+            ]
+          },
+          {
+            "id": "mcp",
+            "title": "Give your AI agent the dev loop",
+            "description": "The bundled MCP server lets Copilot agent mode and friends build and run abap2UI5 apps without an SAP system.",
+            "media": {
+              "markdown": "media/walkthrough/mcp.md"
+            }
+          }
+        ]
       }
     ]
   },

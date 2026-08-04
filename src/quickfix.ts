@@ -26,14 +26,10 @@ const DIAG_SOURCE = "abap2UI5-linter";
  *  triggering every other extension's fixers. */
 const FIX_ALL = vscode.CodeActionKind.SourceFixAll.append("abap2ui5");
 
-/** The files the provider is offered for. `abap` carries no scheme on
- *  purpose: classes opened from a system through the ABAP remote filesystem
- *  live under `adt:`, and they are the main case. */
-export const VIEW_SELECTOR: vscode.DocumentSelector = [
-  { language: "abap" },
-  { pattern: "**/*.view.xml" },
-  { pattern: "**/*.fragment.xml" },
-];
+/** Moved to `selector.ts` so the web bundle can share it - re-exported here
+ *  because the desktop modules historically import it from this file. */
+export { VIEW_SELECTOR } from "./selector";
+import { VIEW_SELECTOR } from "./selector";
 
 /** The rule id behind a diagnostic, whether or not it carries a docs link. */
 function ruleOf(diagnostic: vscode.Diagnostic): string | undefined {
