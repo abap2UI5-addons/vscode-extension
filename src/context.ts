@@ -283,6 +283,178 @@ function controlOf(
   return library ? `${library}.${split.local}` : undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Binding paths: where a {…} is being written, and what encloses it
+// ---------------------------------------------------------------------------
+
+/** The cursor sits inside a `{…}` binding in a value literal. */
+export interface BindingContext {
+  /** What is already typed of the path, from after the `{`. */
+  prefix: string;
+  /** Span of the path written so far - the range a completion replaces. */
+  start: number;
+  end: number;
+  /**
+   * Bound aggregation paths of the `open( )` chain around the cursor's
+   * control, outermost first - `/TRAVELS`, then `SUBITEMS` for a list nested
+   * in a list. A relative path resolves against the row the innermost of
+   * these hands down, exactly as the linter's gate resolves it.
+   */
+  aggregations: string[];
+}
+
+/** A named argument's literal value, whichever quote it uses - unlike
+ *  {@link argValue} it survives the other quote characters INSIDE the
+ *  literal, which a complex binding (`{path: 'X'}` in a backtick literal)
+ *  always has. */
+function argLiteral(args: string, name: string): string | undefined {
+  const m = new RegExp(
+    "\\b" + name + "\\s*=\\s*(?:`([^`]*)`|'([^']*)'|\"([^\"]*)\")",
+    "i"
+  ).exec(args);
+  return m ? (m[1] ?? m[2] ?? m[3]) : undefined;
+}
+
+/** The path a bound aggregation addresses, including the complex form
+ *  (`{path: 'GROUPS', templateShareable: true}`). Undefined for a named
+ *  model or an expression - their rows are unknown, not empty. */
+function boundPathOf(value: string): string | undefined {
+  const v = value.trim();
+  const complex = /^\{[^}]*\bpath\s*:\s*['"]([^'"]+)['"]/.exec(v);
+  if (complex) {
+    return complex[1];
+  }
+  const plain = /^\{\s*(\/?[A-Za-z_][\w/]*)\s*\}$/.exec(v);
+  return plain ? plain[1] : undefined;
+}
+
+/** The path a `v = client->_bind( x )` argument addresses - the idiomatic
+ *  way an aggregation is bound. The framework derives the client path from
+ *  the ABAP name itself: `me->` drops away, `-` becomes `/`, upper-cased,
+ *  with a leading `/` (the same rule the linter's reconstruction applies). */
+function bindCallPathOf(args: string): string | undefined {
+  const m =
+    /\bv\s*=\s*client->_bind(?:_edit)?\(\s*(?:val\s*=\s*)?((?:me->)?\w+(?:-\w+)*)\s*(?:path\s*=\s*abap_\w+\s*)?\)/i.exec(
+      args
+    );
+  if (!m) {
+    return undefined;
+  }
+  return "/" + m[1].replace(/^me->/i, "").replace(/-/g, "/").toUpperCase();
+}
+
+/**
+ * The `open( )` containers still open around `before`, outermost first.
+ * Mirrors the builder's own nesting: `open` pushes a level, `shut` pops it,
+ * `leaf` never nests, and a fresh `factory( )` starts over.
+ */
+function openContainersBefore(calls: Call[], before: number): Call[] {
+  const stack: Call[] = [];
+  for (const call of calls) {
+    if (call.open >= before) {
+      break;
+    }
+    const name = call.name.toLowerCase();
+    if (name === "factory" || name === "stringify") {
+      stack.length = 0;
+    } else if (name === "open") {
+      stack.push(call);
+    } else if (name === "shut") {
+      stack.pop();
+    }
+  }
+  return stack;
+}
+
+/** The `a( )` calls chained to one control call: everything named `a` up to
+ *  the next structural call. */
+function attributeCallsOf(calls: Call[], owner: Call): Call[] {
+  const out: Call[] = [];
+  const from = calls.indexOf(owner);
+  for (let i = from + 1; i < calls.length && i > 0; i++) {
+    const name = calls[i].name.toLowerCase();
+    if (["open", "leaf", "shut", "factory", "stringify"].includes(name)) {
+      break;
+    }
+    if (name === "a") {
+      out.push(calls[i]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The binding being written at `offset`, or undefined when the cursor is not
+ * inside a plain `{…}` in an `a( v = … )` literal. Named models, expression
+ * bindings and the complex syntax are deliberately not completed - their
+ * meaning is not the derived model's to answer.
+ *
+ * `isAggregation` decides whether an attribute of an enclosing container
+ * establishes a row context - that needs the UI5 metadata, which this module
+ * deliberately does not know.
+ */
+export function abapBindingContextAt(
+  source: string,
+  offset: number,
+  isAggregation: (control: string, member: string) => boolean
+): BindingContext | undefined {
+  const { stack, calls, literal } = scanAbap(source, offset);
+  const call = stack[stack.length - 1];
+  if (!literal || !call || call.name.toLowerCase() !== "a") {
+    return undefined;
+  }
+  if (argNameBefore(source, call.open + 1, literal.start - 1) !== "v") {
+    return undefined;
+  }
+
+  // Inside an open {…}, and behind nothing but path characters.
+  const typed = source.slice(literal.start, offset);
+  const brace = typed.lastIndexOf("{");
+  if (brace < 0 || typed.lastIndexOf("}") > brace) {
+    return undefined;
+  }
+  const inner = typed.slice(brace + 1);
+  if (/[^\w/ \t]/.test(inner)) {
+    return undefined; // a named model (>), expression (=), complex syntax (:)
+  }
+  const prefix = inner.replace(/^[ \t]+/, "");
+  const start = literal.start + brace + 1 + (inner.length - prefix.length);
+  let end = offset;
+  while (end < literal.end && /[\w/]/.test(source[end])) {
+    end++;
+  }
+
+  // The row context: bound aggregations of the enclosing containers. The
+  // cursor's own control does not enclose itself - its aggregation binding
+  // applies to its children, not to its own attributes.
+  const ns = abapNsMap(source);
+  const owner = controlCallBefore(calls, call.open);
+  const containers = openContainersBefore(calls, call.open).filter(
+    (container) => container !== owner
+  );
+  const aggregations: string[] = [];
+  for (const container of containers) {
+    const control = controlOf(source, container, ns);
+    if (!control) {
+      continue;
+    }
+    for (const attr of attributeCallsOf(calls, container)) {
+      const args = argsOf(source, attr);
+      const member = argLiteral(args, "n");
+      if (!member || !isAggregation(control, member)) {
+        continue;
+      }
+      const value = argLiteral(args, "v");
+      const path = value ? boundPathOf(value) : bindCallPathOf(args);
+      if (path) {
+        aggregations.push(path);
+        break;
+      }
+    }
+  }
+  return { prefix, start, end, aggregations };
+}
+
 /** The write position at `offset` in an ABAP source, or undefined when the
  *  cursor is not in a place the view metadata has anything to say about. */
 export function abapContextAt(

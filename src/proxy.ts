@@ -33,6 +33,84 @@ export interface ProxyResponse {
   path: string;
 }
 
+// ---------------------------------------------------------------------------
+// Runtime-error forwarding
+// ---------------------------------------------------------------------------
+
+/*
+ * The embedded iframe swallows everything the running app says: a thrown
+ * error, a failed assertion, a rejected promise are visible only in the
+ * browser devtools - exactly the context switch the preview exists to avoid.
+ * The proxy is the one place every HTML response passes through, so it plants
+ * a small hook that forwards window errors, unhandled rejections and
+ * console.error to the embedding page via postMessage. The preview webview
+ * relays them to the extension host, which writes them to the abap2UI5
+ * output channel and counts them in the toolbar.
+ */
+
+/** Marker property of the forwarded messages - the webview filters on it. */
+export const RUNTIME_MESSAGE_MARKER = "__abap2ui5Runtime";
+
+/** Per page load, so a render loop cannot flood the channel. */
+const RUNTIME_MESSAGE_CAP = 50;
+
+/** The hook itself. ES5 on purpose: it runs inside whatever the system
+ *  serves, which may be an old-browser error page. */
+const RUNTIME_HOOK = `<script>(function(){
+var sent=0;
+function send(kind,text){
+  if(sent>=${RUNTIME_MESSAGE_CAP})return;
+  sent++;
+  try{parent.postMessage({${RUNTIME_MESSAGE_MARKER}:kind,text:String(text).slice(0,2000)},'*');}catch(e){}
+}
+window.addEventListener('error',function(e){
+  var msg=e&&e.message?e.message:'Script error';
+  if(e&&e.filename){msg+=' ('+e.filename.split('/').pop()+':'+e.lineno+')';}
+  send('error',msg);
+});
+window.addEventListener('unhandledrejection',function(e){
+  var r=e&&e.reason;
+  send('rejection',(r&&(r.stack||r.message))||String(r));
+});
+var orig=console.error;
+console.error=function(){
+  var parts=[];
+  for(var i=0;i<arguments.length;i++){
+    var a=arguments[i];
+    parts.push(a&&a.stack?a.stack:String(a));
+  }
+  send('console',parts.join(' '));
+  return orig.apply(console,arguments);
+};
+})();</script>`;
+
+/**
+ * Plants the hook into an HTML document, as early as possible so it is
+ * installed before the UI5 bootstrap runs: right after `<head>`, else right
+ * after `<html>`, else in front of everything. Returns the input unchanged
+ * only when it is not recognisable as an HTML document at all.
+ */
+export function injectRuntimeHook(html: string): string {
+  const head = /<head[^>]*>/i.exec(html);
+  if (head) {
+    const at = head.index + head[0].length;
+    return html.slice(0, at) + RUNTIME_HOOK + html.slice(at);
+  }
+  const root = /<html[^>]*>/i.exec(html);
+  if (root) {
+    const at = root.index + root[0].length;
+    return html.slice(0, at) + RUNTIME_HOOK + html.slice(at);
+  }
+  if (/^\s*(<!doctype|<)/i.test(html)) {
+    return RUNTIME_HOOK + html;
+  }
+  return html;
+}
+
+/** Documents bigger than this are streamed through untouched - an HTML this
+ *  size is not the app page the hook is for. */
+const INJECT_MAX_BYTES = 5 * 1024 * 1024;
+
 export class SapProxy {
   private server?: http.Server;
   private port?: number;
@@ -164,6 +242,18 @@ export class SapProxy {
     headers.host = target.host;
     headers.authorization = this.authHeader;
 
+    // A document request may get the runtime hook injected below. Injecting
+    // means reading the body, so ask for it uncompressed - for the handful of
+    // HTML documents a UI5 app loads that costs nothing measurable.
+    const expectsHtml =
+      req.method === "GET" &&
+      (/text\/html/i.test(String(req.headers.accept ?? "")) ||
+        req.headers["sec-fetch-dest"] === "document" ||
+        req.headers["sec-fetch-dest"] === "iframe");
+    if (expectsHtml) {
+      headers["accept-encoding"] = "identity";
+    }
+
     // The browser addresses the proxy, so it sends 127.0.0.1 as Origin and
     // Referer while the forwarded Host is the SAP host. Origin-validating
     // CSRF checks reject that mismatch on every POST ("CSRF validation
@@ -234,8 +324,54 @@ export class SapProxy {
         );
       }
 
-      res.writeHead(proxyRes.statusCode || 502, outHeaders);
-      proxyRes.pipe(res);
+      // HTML documents get the runtime hook planted (see above). Anything
+      // already compressed (a server ignoring accept-encoding) or without a
+      // body is streamed through untouched.
+      const contentType = String(proxyRes.headers["content-type"] ?? "");
+      const injectable =
+        expectsHtml &&
+        /text\/html/i.test(contentType) &&
+        !proxyRes.headers["content-encoding"] &&
+        (proxyRes.statusCode ?? 0) !== 304;
+      if (!injectable) {
+        res.writeHead(proxyRes.statusCode || 502, outHeaders);
+        proxyRes.pipe(res);
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let passedThrough = false;
+      proxyRes.on("data", (chunk: Buffer) => {
+        if (passedThrough) {
+          res.write(chunk);
+          return;
+        }
+        chunks.push(chunk);
+        size += chunk.length;
+        if (size > INJECT_MAX_BYTES) {
+          // Too big to be the app page - flush what is buffered and stream on.
+          passedThrough = true;
+          res.writeHead(proxyRes.statusCode || 502, outHeaders);
+          for (const buffered of chunks) {
+            res.write(buffered);
+          }
+          chunks.length = 0;
+        }
+      });
+      proxyRes.on("end", () => {
+        if (passedThrough) {
+          res.end();
+          return;
+        }
+        const body = injectRuntimeHook(Buffer.concat(chunks).toString("utf8"));
+        const payload = Buffer.from(body, "utf8");
+        delete outHeaders["transfer-encoding"];
+        outHeaders["content-length"] = payload.length;
+        res.writeHead(proxyRes.statusCode || 502, outHeaders);
+        res.end(payload);
+      });
+      proxyRes.on("error", () => res.end());
     });
 
     proxyReq.on("error", (err) => {

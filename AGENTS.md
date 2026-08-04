@@ -34,7 +34,10 @@ find a German string anywhere, it is a leftover — translate it.
 | `src/viewcheck.ts` | Static view checks via abap2UI5-linter: live + on-save + on-demand + workspace, findings as diagnostics |
 | `src/lintconfig.ts` | Discovers and merges the repo's `abap2ui5lint.jsonc` with the VS Code settings |
 | `src/quickfix.ts` | Code actions: the linter's own fixes, "fix all", and the disable-directive waiver |
-| `src/language.ts` | Completion and hover, wired from `context.ts` + `metadata.ts` |
+| `src/language.ts` | Completion and hover, wired from `context.ts` + `metadata.ts` + `bindingpaths.ts` |
+| `src/bindingpaths.ts` | Binding-path offers from the model shape the linter derives (`prepareAbap( ).modelShape`) |
+| `src/xmlpreview.ts` | "Show Reconstructed XML View": virtual document + live refresh |
+| `src/xmlformat.ts` | Pretty-printer for the reconstructed view trees (`prepareAbap( ).nodes`) |
 | `src/codelens.ts` | Run / Activate & reload / Check views above the class definition |
 | `src/mcp.ts` | Registers the abap2UI5 MCP server (ai-mcp) for MCP clients in the window |
 | `src/snapshot.ts` | Loads the bundled UI5 metadata once, for the gate and the language features |
@@ -49,7 +52,8 @@ find a German string anywhere, it is a leftover — translate it.
 not committed.
 
 **The `vscode`-free boundary is load-bearing.** `abap.ts`, `urls.ts`,
-`context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts` and `webview.ts`
+`context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts`,
+`bindingpaths.ts`, `xmlformat.ts`, `proxy.ts` and `webview.ts`
 (HTML strings only — the state it renders is passed in) must not import
 `vscode`: the test suite bundles them for plain Node, and an accidental import
 turns a unit test into a module-not-found error. Put the interesting logic

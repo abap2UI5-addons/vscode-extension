@@ -26,6 +26,11 @@ tying the extension to a system is the launch URL you configure once.
 - **Device widths, theme and language** – Switch the preview between desktop,
   tablet (834px) and phone (414px), and between UI5 themes and logon
   languages, to check a responsive app without leaving the editor.
+- **Runtime errors land in the editor** – A thrown error, a failed UI5
+  assertion or a rejected promise in the running app is forwarded out of the
+  embedded preview: the full text goes to the **abap2UI5** output channel and
+  the toolbar counts the errors in a badge — no browser devtools needed. See
+  [Runtime errors](#runtime-errors-in-the-preview).
 - **Status bar** – While an app is running the status bar shows the class and
   the system; clicking it reloads the preview.
 - **Several systems** – Name your systems in `abap2ui5.systems` and switch
@@ -43,8 +48,13 @@ tying the extension to a system is the launch URL you configure once.
   writes the linter directive CI honours too.
 - **Completion and hover for the whole UI5 API** – Control names, the members
   of exactly that control, and the values an enum property accepts — from the
-  metadata snapshot the extension already ships. See
+  metadata snapshot the extension already ships. Plus the **binding paths the
+  class's model actually has**, offered inside `{…}`. See
   [Completion and hover](#completion-and-hover).
+- **Show Reconstructed XML View** – The XML the builder calls actually
+  produce, as a live, syntax-highlighted document next to the class — the
+  same reconstruction the view check validates. See
+  [Reconstructed XML](#reconstructed-xml).
 - **The abap2UI5 MCP server for AI agents** – Copilot agent mode (and every
   other MCP client in the window) gets the abap2UI5 dev loop without an SAP
   system. See [MCP server](#mcp-server-abap2ui5mcp).
@@ -130,6 +140,23 @@ certificates are accepted.
 >
 > **Change or delete credentials:** run the command *"abap2UI5: Clear Stored
 > SAP Credentials"*. The next F9 asks again.
+
+### Runtime errors in the preview
+
+An embedded iframe swallows what the running app says: a thrown error, a
+failed assertion, an unhandled promise rejection are visible only in the
+browser devtools — exactly the context switch the preview exists to avoid.
+In `tab` and `panel` mode the auth proxy therefore plants a small hook into
+the app's HTML that forwards `window.onerror`, unhandled rejections and
+`console.error` to the extension:
+
+- the **abap2UI5** output channel (View → Output) carries the full text, and
+- the preview toolbar counts the errors in a red badge; clicking it opens
+  the output channel. The count resets with every (re)load.
+
+The hook is capped at 50 messages per page load, so a render loop cannot
+flood the log. In `external` mode the app runs in a real browser, which has
+its own devtools — nothing is forwarded there.
 
 ## Reloading (`abap2ui5.reloadOn`)
 
@@ -266,8 +293,27 @@ Hover adds the type, the UI5 version a member appeared in, its deprecation and
 a link to the UI5 API reference. Raw `*.view.xml` and `*.fragment.xml` files
 get the same, on the tag name, the attribute name and the attribute value.
 
+**Binding paths** complete too: typing `{` in a value offers the paths the
+model derived from the class actually has — the same model the
+`unknown-binding-path` rule checks against, so what is offered is exactly
+what will not squiggle afterwards. Inside an aggregation template the fields
+of the bound row come first (`{STATUS}` in a list bound to `{/TRAVELS}`,
+through nested aggregations too), absolute paths after. Structures the class
+does not declare (DDIC types) are offered as themselves and never guessed
+into; named models and expression bindings are left alone.
+
 No SAP system, no network and no setup is involved — it is the same data the
 check already uses.
+
+### Reconstructed XML
+
+abap2UI5 views are strings assembled by builder calls, so what actually
+reaches `XMLView.create` is never visible in the source. *"abap2UI5: Show
+Reconstructed XML View"* opens exactly that — the reconstruction the view
+check validates — as a read-only, syntax-highlighted XML document beside the
+class, and keeps it following the edits, refreshing shortly after each
+pause. A class assembling more than one view (a popup next to its main view)
+shows them all, labelled.
 
 ## MCP server (`abap2ui5.mcp.*`)
 
@@ -327,6 +373,7 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2UI5: Go to the Running App` | Focuses the preview, wherever it currently is |
 | `abap2UI5: Check Views (Static)` | Runs the static view check on the current file |
 | `abap2UI5: Check All Views in the Workspace` | Runs the same check over every ABAP class and view file |
+| `abap2UI5: Show Reconstructed XML View` | Opens the XML the builder calls produce, live beside the class |
 | `abap2UI5: Fix All View Findings in This File` | Applies every mechanical fix at once |
 | `abap2UI5: Install Render Gate` | Downloads the render-gate checker and Chromium into the extension's storage |
 | `abap2UI5: Set Launch URL` | Sets (or changes) the launch URL template |

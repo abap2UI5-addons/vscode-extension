@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.17.0
+
+- **Runtime errors of the running app reach VS Code.** The embedded preview
+  used to swallow them: a thrown error, a failed UI5 assertion, a rejected
+  promise were visible only in the browser devtools — exactly the context
+  switch the preview exists to avoid. The auth proxy now plants a small hook
+  into the app's HTML that forwards `window.onerror`, unhandled rejections
+  and `console.error` to the extension: the full text lands in the
+  **abap2UI5** output channel, and the preview toolbar counts them in a red
+  badge that clicking opens the log. The count resets with every (re)load.
+  Applies to `tab` and `panel` mode — `external` opens a real browser, which
+  has its own devtools.
+- **"Show Reconstructed XML View."** abap2UI5 views are strings assembled by
+  builder calls, so what actually reaches `XMLView.create` was never visible.
+  The linter reconstructs exactly that for its checks; the new command
+  *"abap2UI5: Show Reconstructed XML View"* opens the same reconstruction as
+  a read-only, syntax-highlighted XML document next to the class — and keeps
+  it following the edits, refreshing shortly after each pause. Debugging a
+  nesting or binding problem stops being "stare at the builder chain".
+- **Completion for binding paths.** The gate has always *reported* a path the
+  derived model does not have (`unknown-binding-path`); now the paths it
+  *does* have are offered while the binding is written. Typing `{` in an
+  `a( v = … )` literal lists the model's paths — the fields of the enclosing
+  aggregation's row first (`{STATUS}` inside a list bound to `{/TRAVELS}`,
+  through nested aggregations too), absolute paths after (`/TRAVELS/STATUS`
+  walks through the table's row, the way the gate resolves it). Structures
+  the class does not declare (DDIC types) are offered as themselves and never
+  guessed into, named models and expression bindings are left alone — the
+  same lines the gate draws. What is offered is exactly what will not
+  squiggle afterwards.
+
 ## 0.16.0
 
 - **The abap2UI5 panel is no longer a dead end.** With the default open mode

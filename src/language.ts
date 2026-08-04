@@ -1,11 +1,20 @@
 import * as vscode from "vscode";
+import { prepareAbap } from "@abap2ui5/linter/reconstruct";
 import {
+  abapBindingContextAt,
   abapContextAt,
   abapNsMap,
+  BindingContext,
   WriteContext,
   xmlContextAt,
   xmlNsMap,
 } from "./context";
+import {
+  absoluteOffers,
+  PathOffer,
+  relativeOffers,
+  rowShapeFor,
+} from "./bindingpaths";
 import {
   controlsIn,
   describeControl,
@@ -69,16 +78,99 @@ function markdown(text: string): vscode.MarkdownString {
   return md;
 }
 
+// ---------------------------------------------------------------------------
+// Binding paths - offered from the model shape the linter derives
+// ---------------------------------------------------------------------------
+
+/** The derived model shape of a class, memoised on the document version -
+ *  deriving it walks the whole source, and completion asks on keystrokes. */
+let shapeMemo:
+  | { key: string; version: number; shape: unknown }
+  | undefined;
+
+function modelShapeOf(doc: vscode.TextDocument): unknown {
+  const key = doc.uri.toString();
+  if (shapeMemo && shapeMemo.key === key && shapeMemo.version === doc.version) {
+    return shapeMemo.shape;
+  }
+  const prep = prepareAbap(doc.getText());
+  const shape = prep.usesBuilder ? prep.modelShape : undefined;
+  shapeMemo = { key, version: doc.version, shape };
+  return shape;
+}
+
+/**
+ * Completions inside a `{…}` binding: the paths the derived model actually
+ * has - the same shape the gate reports `unknown-binding-path` against, so
+ * what is offered here is exactly what will not squiggle afterwards. Row
+ * fields of the enclosing aggregation first, absolute paths after.
+ */
+function bindingItems(
+  doc: vscode.TextDocument,
+  binding: BindingContext
+): vscode.CompletionItem[] {
+  const shape = modelShapeOf(doc);
+  if (!shape) {
+    return [];
+  }
+  const range = new vscode.Range(
+    doc.positionAt(binding.start),
+    doc.positionAt(binding.end)
+  );
+  const make = (offer: PathOffer, group: string): vscode.CompletionItem => {
+    const item = new vscode.CompletionItem(
+      offer.path,
+      offer.table
+        ? vscode.CompletionItemKind.Struct
+        : vscode.CompletionItemKind.Field
+    );
+    item.detail = offer.table ? "table - what an aggregation binds" : "model path";
+    item.range = range;
+    item.sortText = `${group}${offer.path}`;
+    return item;
+  };
+  const items: vscode.CompletionItem[] = [];
+  if (binding.aggregations.length) {
+    const row = rowShapeFor(shape, binding.aggregations);
+    if (row) {
+      // The row the enclosing aggregation hands down - what a relative
+      // path means right here.
+      items.push(...relativeOffers(row).map((offer) => make(offer, "0")));
+    }
+  }
+  items.push(...absoluteOffers(shape).map((offer) => make(offer, "1")));
+  return items;
+}
+
 class ViewCompletion implements vscode.CompletionItemProvider {
   provideCompletionItems(
     doc: vscode.TextDocument,
     position: vscode.Position
   ): vscode.CompletionItem[] {
+    const data = snapshot();
+
+    // A binding being written wins over the enum values of the member - the
+    // `{` says the value is a path, not a literal.
+    const isXml =
+      VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(doc.getText());
+    if (!isXml) {
+      const binding = abapBindingContextAt(
+        doc.getText(),
+        doc.offsetAt(position),
+        (control, member) =>
+          membersOf(data, control).some(
+            (m) => m.name === member && m.section === "aggregations"
+          )
+      );
+      if (binding) {
+        return bindingItems(doc, binding);
+      }
+    }
+
     const context = contextAt(doc, position);
     if (!context) {
       return [];
     }
-    const data = snapshot();
     const range = new vscode.Range(
       doc.positionAt(context.start),
       doc.positionAt(context.end)
@@ -200,12 +292,15 @@ export function registerLanguageFeatures(
       VIEW_SELECTOR,
       new ViewCompletion(),
       // The quotes are where a control, a member or a value starts in the
-      // builder; `<` and the space are the same positions in raw XML.
+      // builder; `<` and the space are the same positions in raw XML. `{`
+      // and `/` are where a binding path starts and descends.
       "`",
       "'",
       '"',
       "<",
-      " "
+      " ",
+      "{",
+      "/"
     ),
     vscode.languages.registerHoverProvider(VIEW_SELECTOR, new ViewHover())
   );

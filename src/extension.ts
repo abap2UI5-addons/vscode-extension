@@ -10,6 +10,7 @@ import {
 import { registerMcp } from "./mcp";
 import { registerRenderGate } from "./rendergate";
 import { registerViewCheck } from "./viewcheck";
+import { registerXmlPreview } from "./xmlpreview";
 import { registerQuickFix } from "./quickfix";
 import { registerLanguageFeatures } from "./language";
 import { registerCodeLens } from "./codelens";
@@ -325,10 +326,26 @@ let previewProvider: PreviewViewProvider | undefined;
 
 function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void {
   const message = msg as
-    | { type?: string; command?: string; name?: string; value?: string }
+    | { type?: string; command?: string; name?: string; value?: string; kind?: string; text?: string }
     | undefined;
   if (message?.type === "openExternal" && target) {
     void vscode.env.openExternal(vscode.Uri.parse(target.externalUrl));
+    return;
+  }
+  // A runtime error the app reported through the hook the proxy plants: the
+  // output channel is where the full text lives, the toolbar badge only counts.
+  if (message?.type === "runtimeError") {
+    const kind =
+      message.kind === "rejection"
+        ? "unhandled rejection"
+        : message.kind === "console"
+          ? "console.error"
+          : "error";
+    log(`app ${target?.className ?? "?"}: ${kind}: ${message.text ?? ""}`);
+    return;
+  }
+  if (message?.type === "showRuntimeLog") {
+    output?.show(true);
     return;
   }
   if (message?.type === "param" && previewProvider) {
@@ -1086,6 +1103,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   registerViewCheck(context, log);
+  registerXmlPreview(context, log);
   registerQuickFix(context, log);
   registerLanguageFeatures(context, log);
   registerCodeLens(context);

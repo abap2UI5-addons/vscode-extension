@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { abapContextAt, abapNsMap, xmlContextAt, xmlNsMap } from "../context";
+import {
+  abapBindingContextAt,
+  abapContextAt,
+  abapNsMap,
+  xmlContextAt,
+  xmlNsMap,
+} from "../context";
 
 /** The cursor is marked with `‸` in the fixtures - easier to read than an
  *  offset, and it keeps the fixture and the position from drifting apart. */
@@ -140,4 +146,118 @@ test("raw XML: the tag name, an attribute and a value", () => {
 test("raw XML: between two tags there is nothing to offer", () => {
   assert.deepEqual(xmlNsMap('<mvc:View xmlns="sap.m">'), { "": "sap.m" });
   assert.equal(xmlAt('<mvc:View xmlns="sap.m">\n  ‸\n</mvc:View>'), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Binding paths
+// ---------------------------------------------------------------------------
+
+/** `items` is the only aggregation - enough resolution for these fixtures. */
+const isAggregation = (_control: string, member: string) => member === "items";
+
+function bindingAt(marked: string) {
+  const { source, offset } = at(marked);
+  return abapBindingContextAt(source, offset, isAggregation);
+}
+
+test("a { in a value literal is a binding being written", () => {
+  const context = bindingAt(
+    HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `{/NA‸` )"
+  );
+  assert.equal(context?.prefix, "/NA");
+  assert.deepEqual(context?.aggregations, []);
+});
+
+test("the replace span covers the whole path written so far", () => {
+  const { source, offset } = at(
+    HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `{/NA‸ME}` )"
+  );
+  const context = abapBindingContextAt(source, offset, isAggregation);
+  assert.equal(source.slice(context!.start, context!.end), "/NAME");
+});
+
+test("inside an aggregation template the bound path is known", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/TRAVELS"]);
+});
+
+test("nested aggregations stack, outermost first", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`\n" +
+      "    )->open( n = `List` )->a( n = `items` v = `{STOPS}`\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/TRAVELS", "STOPS"]);
+});
+
+test("a shut( ) closes its container's row context", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`\n" +
+      "    )->shut(\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, []);
+});
+
+test("a container's own attributes are outside its row context", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{/TRAVELS}`" +
+      " )->a( n = `headerText` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, []);
+});
+
+test("the complex aggregation binding syntax still names its path", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = `{path: '/TRAVELS', templateShareable: false}`\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/TRAVELS"]);
+});
+
+test("named models, expressions and complex syntax are not completed", () => {
+  const base = HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = ";
+  assert.equal(bindingAt(base + "`{device>/NA‸` )"), undefined);
+  assert.equal(bindingAt(base + "`{= ${/A} + ‸` )"), undefined);
+  assert.equal(bindingAt(base + "`{path: '/NA‸'}` )"), undefined);
+});
+
+test("behind the closing brace the binding is over", () => {
+  assert.equal(
+    bindingAt(HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `{/NAME} ‸` )"),
+    undefined
+  );
+});
+
+test("a { in the n argument is not a binding", () => {
+  assert.equal(
+    bindingAt(HEAD + "    )->leaf( n = `Text` )->a( n = `{‸` )"),
+    undefined
+  );
+});
+
+test("an aggregation bound via client->_bind( ) still names its path", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = client->_bind( mt_travels )\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/MT_TRAVELS"]);
+});
+
+test("a structure component bound via _bind flattens like the framework does", () => {
+  const context = bindingAt(
+    HEAD +
+      "    )->open( n = `List` )->a( n = `items` v = client->_bind( val = ms_data-rows )\n" +
+      "    )->leaf( n = `Text` )->a( n = `text` v = `{‸` )"
+  );
+  assert.deepEqual(context?.aggregations, ["/MS_DATA/ROWS"]);
 });
