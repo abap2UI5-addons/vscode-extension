@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.19.0
+
+- **Inspect: click the app, land in the code.** The 🎯 button in the preview
+  toolbar starts a one-shot inspect mode: the hovered control is outlined,
+  a click jumps to the `open( )` / `leaf( )` call that wrote it (Esc
+  cancels). The clicked control's type and parent chain are matched against
+  the reconstructed view, so a row inside a bound list lands on its
+  template - and an `id` written in the class settles the match outright.
+- **The app's model, one click away.** The `{ }` button asks the running app
+  for its JSON model and shows it as a document beside the code - the live
+  values next to the statically derived shape completion and hover already
+  know. Every click refreshes the same document. "Why is that field empty?"
+  is now: look.
+- **The XML preview follows the editor.** One preview, like the Markdown
+  preview: switch to another view-building class and the XML swaps to that
+  class, edit and it re-renders after each pause. A class that builds no
+  views leaves the last reconstruction standing instead of blanking the tab.
+
 ## 0.18.0
 
 - **The reconstructed XML is navigable and honest about problems.** The
@@ -8,10 +26,6 @@
   its `open( )` / `leaf( )` / `a( )` in the class, and the view check's
   findings are mirrored onto the XML lines they concern - the structure and
   what is wrong with it, in one place.
-- **The XML preview follows the editor.** One preview, like the Markdown
-  preview: switch to another view-building class and the XML swaps to that
-  class, edit and it re-renders after each pause. A class that builds no
-  views leaves the last reconstruction standing instead of blanking the tab.
 - **Event navigation.** Go to Definition on the event name in
   `client->_event( 'GO' )` jumps to the `WHEN 'GO'` that handles it - and on
   the `WHEN` literal it jumps back to every place the view raises the event.

@@ -31,6 +31,11 @@ tying the extension to a system is the launch URL you configure once.
   embedded preview: the full text goes to the **abap2UI5** output channel and
   the toolbar counts the errors in a badge — no browser devtools needed. See
   [Runtime errors](#runtime-errors-in-the-preview).
+- **Inspect: click the app, land in the code** – The 🎯 toolbar button
+  outlines the hovered control; a click jumps to the builder call that wrote
+  it. The `{ }` button next to it shows the running app's **JSON model** as
+  a document — live values next to the statically known shape. See
+  [Inspect and the live model](#inspect-and-the-live-model).
 - **Status bar** – While an app is running the status bar shows the class and
   the system; clicking it reloads the preview.
 - **Several systems** – Name your systems in `abap2ui5.systems` and switch
@@ -173,6 +178,26 @@ its own devtools — nothing is forwarded there.
 When the error text names a binding path or a quoted identifier that appears
 in the running class, the log adds the file and line right under the error —
 for local files as a clickable `path:line`.
+
+### Inspect and the live model
+
+Two more toolbar buttons talk to the running app through the same hook:
+
+- **Inspect (🎯)** starts a one-shot pick, like the element picker in
+  browser devtools: the hovered control is outlined, a click jumps to the
+  `open( )` / `leaf( )` call in the class that wrote it, Esc cancels. The
+  clicked control's type and parent chain are matched against the
+  reconstructed view — a row inside a bound list lands on its template, two
+  same-typed controls are told apart by their surroundings, and an `id`
+  written in the class settles the match outright. The class has to be open
+  in the window (it is where the jump goes).
+- **Model (`{ }`)** asks the app for its JSON model and shows it as a
+  read-only document beside the code — the live values next to the shape
+  that completion and hover derive statically. Every click refreshes the
+  same document, so it can stay open while you work.
+
+Both need the embedded preview (`tab` or `panel` mode) — in `external` mode
+the app runs in a real browser, which has its own devtools.
 
 ## Reloading (`abap2ui5.reloadOn`)
 

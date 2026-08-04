@@ -19,6 +19,12 @@ test("the preview carries the runtime-error badge, reset on every load", () => {
   assert.ok(html.includes("runtimeError"));
   // A reload starts a clean count.
   assert.ok(html.includes("setErrorCount(0)"));
+  // Inspect and model talk INTO the iframe and relay the answers out.
+  assert.ok(html.includes('id="inspect"'));
+  assert.ok(html.includes('id="model"'));
+  assert.ok(html.includes("__abap2ui5Cmd"));
+  assert.ok(html.includes("inspected"));
+  assert.ok(html.includes("appModel"));
 });
 
 test("in panel mode the empty state promises the app right here", () => {

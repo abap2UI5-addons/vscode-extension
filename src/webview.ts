@@ -91,6 +91,8 @@ const ICON = {
   link: `<path d="M8.5 2.5 10 4l-1.4 1.4-1-1a1.8 1.8 0 0 0-2.6 2.6l1 1L4.6 9.4l-1.5-1.5a3.3 3.3 0 0 1 4.7-4.7l.7.3zm4 4a3.3 3.3 0 0 1 0 4.7l-1.5 1.5-1.4-1.4 1.4-1.4a1.8 1.8 0 0 0-2.6-2.6L7 8.7 5.6 7.3 7 5.9a3.3 3.3 0 0 1 5.5.6z"/>`,
   panel: `<path d="M2 3h12v10H2V3zm1.5 1.5v3.1h9V4.5h-9zm0 4.6v2.4h9V9.1h-9z"/>`,
   tab: `<path d="M2 4h5.5l1 1.5H14V13H2V4zm1.5 1.5v6h9V7H7.7l-1-1.5H3.5z"/>`,
+  inspect: `<path d="M7.25 1h1.5v3.2h-1.5V1zM7.25 11.8h1.5V15h-1.5v-3.2zM1 7.25h3.2v1.5H1v-1.5zM11.8 7.25H15v1.5h-3.2v-1.5zM8 5.2A2.8 2.8 0 1 1 8 10.8 2.8 2.8 0 0 1 8 5.2zm0 1.5a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z"/>`,
+  model: `<path d="M5.9 2C5 2 4.3 2.7 4.3 3.6v1.9c0 .5-.4.9-.9.9H3v1.2h.4c.5 0 .9.4.9.9v1.9c0 .9.7 1.6 1.6 1.6h1V10.7h-1v-1.6c0-.6-.3-1.2-.8-1.6.5-.4.8-1 .8-1.6V4.3h1V3H5.9zm4.2 0H9v1.3h1v1.6c0 .6.3 1.2.8 1.6-.5.4-.8 1-.8 1.6v1.6H9V12h1.1c.9 0 1.6-.7 1.6-1.6V8.5c0-.5.4-.9.9-.9h.4V6.4h-.4c-.5 0-.9-.4-.9-.9V3.6c0-.9-.7-1.6-1.6-1.6z"/>`,
 };
 
 function icon(name: keyof typeof ICON): string {
@@ -279,6 +281,12 @@ ${BASE_CSS}
 
   .act { padding: 4px 7px; opacity: 0.8; flex: none; }
   .act:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.14)); }
+  .act[aria-pressed="true"] {
+    opacity: 1;
+    color: var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
+    background: var(--vscode-inputOption-activeBackground, rgba(0,120,212,0.25));
+    border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder));
+  }
   .act.spin .ico { animation: spin 600ms ease; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
@@ -382,6 +390,8 @@ ${BASE_CSS}
       LANGUAGES,
       options.language
     )}</select>
+    <button class="act" id="inspect" aria-pressed="false" title="Inspect: click a control in the app to jump to its builder call (Esc cancels)">${icon("inspect")}</button>
+    <button class="act" id="model" title="Show the app's JSON model">${icon("model")}</button>
     <button class="act" id="reload" title="Reload the app">${icon("refresh")}</button>
     <button class="act" id="ext" title="Open in the default browser">${icon("external")}</button>
   </div>
@@ -434,6 +444,25 @@ ${BASE_CSS}
     vscodeApi.postMessage({ type: 'showRuntimeLog' });
   });
 
+  // Inspect mode and the model dump talk to the hook inside the app iframe.
+  const inspectBtn = document.getElementById('inspect');
+  const modelBtn = document.getElementById('model');
+  let inspectOn = false;
+  function postToApp(message) {
+    try { frame.contentWindow.postMessage(message, '*'); } catch (e) { /* not loaded yet */ }
+  }
+  function markInspect(on) {
+    inspectOn = on;
+    inspectBtn.setAttribute('aria-pressed', String(on));
+  }
+  inspectBtn.addEventListener('click', () => {
+    markInspect(!inspectOn);
+    postToApp({ __abap2ui5Cmd: 'inspect', on: inspectOn });
+  });
+  modelBtn.addEventListener('click', () => {
+    postToApp({ __abap2ui5Cmd: 'model' });
+  });
+
   // Device width survives a webview being hidden and restored.
   const saved = vscodeApi.getState() || {};
   setDevice(saved.device || 'desktop', false);
@@ -473,6 +502,7 @@ ${BASE_CSS}
   frame.addEventListener('load', () => {
     clearTimeout(slowTimer);
     body.dataset.state = 'ready';
+    markInspect(false); // the fresh page has a fresh hook, mode off
   });
 
   reloadBtn.addEventListener('click', () => {
@@ -517,11 +547,29 @@ ${BASE_CSS}
   // one - they are counted here and relayed to the host for the output log.
   window.addEventListener('message', (event) => {
     const msg = event.data || {};
-    if (msg.__abap2ui5Runtime) {
+    const kind = msg.__abap2ui5Runtime;
+    if (kind === 'inspect') {
+      markInspect(false); // one-shot: the click ends the mode
+      vscodeApi.postMessage({ type: 'inspected', chain: msg.chain || [] });
+      return;
+    }
+    if (kind === 'inspect-state') {
+      markInspect(!!msg.on);
+      return;
+    }
+    if (kind === 'model') {
+      vscodeApi.postMessage({
+        type: 'appModel',
+        text: String(msg.text || ''),
+        error: String(msg.error || ''),
+      });
+      return;
+    }
+    if (kind) {
       setErrorCount(errorCount + 1);
       vscodeApi.postMessage({
         type: 'runtimeError',
-        kind: String(msg.__abap2ui5Runtime),
+        kind: String(kind),
         text: String(msg.text || ''),
       });
       return;
