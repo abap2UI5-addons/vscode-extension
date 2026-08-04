@@ -5,7 +5,8 @@ source as XML — until now. *"abap2UI5: Show Reconstructed XML View"* opens
 the reconstruction the view check validates as a live, syntax-highlighted
 document beside the class:
 
-- it follows your edits, refreshing after each pause,
+- it follows the class you are editing - switch to another view-building
+  class and the XML swaps along, edits re-render after each pause,
 - the view check's findings are mirrored onto the XML lines they concern,
 - **Go to Definition** on any line jumps to the `open( )` / `leaf( )` /
   `a( )` call that wrote it.

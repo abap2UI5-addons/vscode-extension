@@ -10,9 +10,13 @@ import { formatDocument } from "./xmlformat";
  * abap2UI5 views are strings assembled by builder calls, so what actually
  * reaches `XMLView.create` is never visible in the source. The linter
  * reconstructs exactly that for its checks; this module opens the same
- * reconstruction as a read-only XML document next to the class and keeps it
- * following the edits. Debugging a binding or nesting problem stops being
- * "stare at the builder chain" and becomes "read the view".
+ * reconstruction as a read-only XML document next to the class.
+ *
+ * There is ONE preview and it follows the editor, the way the Markdown
+ * preview does: switch to another view-building class and the XML swaps to
+ * that class; edit the class and the XML re-renders shortly after each
+ * pause. A class that builds no views does not blank the preview - the last
+ * reconstruction stays until the next builder class takes over.
  *
  * The reconstruction records which builder call wrote each node and
  * attribute, so the XML is not just readable but navigable: Go to Definition
@@ -22,40 +26,45 @@ import { formatDocument } from "./xmlformat";
 
 export const XML_PREVIEW_SCHEME = "abap2ui5-xml";
 
+/** The one preview document. The name deliberately does not end in
+ *  `.view.xml`: the view check would treat that as a checkable view file
+ *  and double-report everything the class already gets. */
+const PREVIEW_URI = vscode.Uri.from({
+  scheme: XML_PREVIEW_SCHEME,
+  path: "/abap2UI5.reconstructed.xml",
+});
+
 /** How long after the last keystroke the XML refreshes - same rhythm as the
  *  live view check, for the same reason. */
 const REFRESH_DEBOUNCE_MS = 400;
 
-/** virtual document -> the ABAP source it renders. */
-const sources = new Map<string, vscode.Uri>();
+/** The class the preview currently renders. */
+let activeSource: vscode.Uri | undefined;
 
-/** Last rendered content, so the tab survives its source being closed. */
-const lastContent = new Map<string, string>();
+/** True while the preview document is open in some tab - only then is it
+ *  worth re-rendering or following the active editor. */
+let previewOpen = false;
 
-/** Line -> source-offset map of the last render, for navigation/findings. */
-const lastOffsets = new Map<string, Array<number | undefined>>();
+/** Last rendered state, for the definition provider and the survivors of a
+ *  closed source. */
+let lastContent: string | undefined;
+let lastOffsets: Array<number | undefined> | undefined;
 
-function virtualUriFor(doc: vscode.TextDocument): vscode.Uri {
-  const className =
-    classNameOf(doc.getText(), doc.fileName).toUpperCase() || "VIEW";
-  // The query pins one virtual document per source, so two classes never
-  // fight over the same tab. The path is what the tab shows. Deliberately
-  // not `*.view.xml`: the view check would treat that name as a checkable
-  // view file and double-report everything the class already gets.
-  return vscode.Uri.from({
-    scheme: XML_PREVIEW_SCHEME,
-    path: `/${className}.reconstructed.xml`,
-    query: doc.uri.toString(),
-  });
+/** A source the preview can follow: an ABAP buffer that builds views. */
+function isFollowable(doc: vscode.TextDocument): boolean {
+  if (doc.languageId !== "abap" && !/\.abap$/i.test(doc.fileName)) {
+    return false;
+  }
+  return usesBuilder(doc.getText());
 }
 
-function sourceDocOf(virtualKey: string): vscode.TextDocument | undefined {
-  const sourceUri = sources.get(virtualKey);
-  if (!sourceUri) {
+function activeSourceDoc(): vscode.TextDocument | undefined {
+  if (!activeSource) {
     return undefined;
   }
+  const key = activeSource.toString();
   return vscode.workspace.textDocuments.find(
-    (doc) => doc.uri.toString() === sourceUri.toString()
+    (doc) => doc.uri.toString() === key
   );
 }
 
@@ -97,13 +106,12 @@ export function registerXmlPreview(
    *  module stays free of the checker plumbing (the web build has none). */
   findingsFor?: (doc: vscode.TextDocument) => PropertyFinding[]
 ): void {
-  const timers = new Map<string, NodeJS.Timeout>();
+  let timer: NodeJS.Timeout | undefined;
   const diagnostics =
     vscode.languages.createDiagnosticCollection("abap2ui5-xml-preview");
 
   /** Mirrors the source's findings onto the XML lines their calls render. */
   function mirrorFindings(
-    virtualUri: vscode.Uri,
     source: vscode.TextDocument,
     offsets: Array<number | undefined>,
     lines: string[]
@@ -137,11 +145,10 @@ export function registerXmlPreview(
       d.code = f.type;
       out.push(d);
     }
-    diagnostics.set(virtualUri, out);
+    diagnostics.set(PREVIEW_URI, out);
   }
 
-  function render(virtualUri: vscode.Uri, source: vscode.TextDocument): string {
-    const key = virtualUri.toString();
+  function render(source: vscode.TextDocument): string {
     const prep = prepareAbap(source.getText());
     const className =
       classNameOf(source.getText(), source.fileName).toUpperCase() ||
@@ -151,20 +158,15 @@ export function registerXmlPreview(
         `<!-- ${className}: no view could be reconstructed - the class calls ` +
         `z2ui5_cl_ai_xml=>factory( ) but nothing checkable came out of the ` +
         `builder chain. -->\n`;
-      lastContent.set(key, empty);
-      lastOffsets.delete(key);
-      diagnostics.delete(virtualUri);
+      lastContent = empty;
+      lastOffsets = undefined;
+      diagnostics.delete(PREVIEW_URI);
       return empty;
     }
     const formatted = formatDocument(prep.nodes, className);
-    lastContent.set(key, formatted.text);
-    lastOffsets.set(key, formatted.lineOffsets);
-    mirrorFindings(
-      virtualUri,
-      source,
-      formatted.lineOffsets,
-      formatted.text.split("\n")
-    );
+    lastContent = formatted.text;
+    lastOffsets = formatted.lineOffsets;
+    mirrorFindings(source, formatted.lineOffsets, formatted.text.split("\n"));
     return formatted.text;
   }
 
@@ -172,17 +174,38 @@ export function registerXmlPreview(
     readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     readonly onDidChange = this.onDidChangeEmitter.event;
 
-    provideTextDocumentContent(uri: vscode.Uri): string {
-      const source = sourceDocOf(uri.toString());
+    provideTextDocumentContent(): string {
+      const source = activeSourceDoc();
       if (!source) {
         return (
-          lastContent.get(uri.toString()) ??
-          "<!-- The ABAP class this view was reconstructed from is no longer open. -->\n"
+          lastContent ??
+          "<!-- Open an ABAP class that builds views with z2ui5_cl_ai_xml " +
+            "- the preview follows the class you are editing. -->\n"
         );
       }
-      return render(uri, source);
+      return render(source);
     }
   })();
+
+  const refresh = (delay: number) => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      timer = undefined;
+      provider.onDidChangeEmitter.fire(PREVIEW_URI);
+    }, delay);
+  };
+
+  /** Points the preview at a class; re-renders when it is a new one. */
+  const follow = (doc: vscode.TextDocument) => {
+    const changed = activeSource?.toString() !== doc.uri.toString();
+    activeSource = doc.uri;
+    if (changed) {
+      log(`xml-preview: following ${doc.fileName}`);
+      refresh(0);
+    }
+  };
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(
@@ -190,90 +213,83 @@ export function registerXmlPreview(
       provider
     ),
     diagnostics,
-    { dispose: () => timers.forEach((t) => clearTimeout(t)) },
+    {
+      dispose: () => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+      },
+    },
 
     // A line of the XML knows the builder call that wrote it.
     vscode.languages.registerDefinitionProvider(
       { scheme: XML_PREVIEW_SCHEME },
       {
-        provideDefinition(doc, position) {
-          const offsets = lastOffsets.get(doc.uri.toString());
-          const source = sourceDocOf(doc.uri.toString());
-          const offset = offsets?.[position.line];
+        provideDefinition(_doc, position) {
+          const source = activeSourceDoc();
+          const offset = lastOffsets?.[position.line];
           if (!source || offset === undefined) {
             return undefined;
           }
-          const at = source.positionAt(Math.min(offset, source.getText().length));
-          return new vscode.Location(
-            source.uri,
-            source.lineAt(at.line).range
+          const at = source.positionAt(
+            Math.min(offset, source.getText().length)
           );
+          return new vscode.Location(source.uri, source.lineAt(at.line).range);
         },
       }
     ),
 
     vscode.commands.registerCommand("abap2ui5.showReconstructedXml", async () => {
       const doc = vscode.window.activeTextEditor?.document;
-      if (
-        !doc ||
-        (doc.languageId !== "abap" && !/\.abap$/i.test(doc.fileName)) ||
-        !usesBuilder(doc.getText())
-      ) {
+      if (!doc || !isFollowable(doc)) {
         vscode.window.showInformationMessage(
           "abap2UI5: open an ABAP class that builds views with " +
             "z2ui5_cl_ai_xml to see its reconstructed XML."
         );
         return;
       }
-      const uri = virtualUriFor(doc);
-      sources.set(uri.toString(), doc.uri);
-      const virtual = await vscode.workspace.openTextDocument(uri);
+      follow(doc);
+      const virtual = await vscode.workspace.openTextDocument(PREVIEW_URI);
       await vscode.languages.setTextDocumentLanguage(virtual, "xml");
+      previewOpen = true;
       await vscode.window.showTextDocument(virtual, {
         viewColumn: vscode.ViewColumn.Beside,
         preserveFocus: true,
         preview: false,
       });
-      log(`xml-preview: showing the reconstruction of ${doc.fileName}`);
+      refresh(0);
     }),
 
-    // The reconstruction follows the class: re-render shortly after each
-    // pause, but only for sources that actually have a preview open.
-    vscode.workspace.onDidChangeTextDocument((e) => {
-      if (!e.contentChanges.length) {
+    // The preview follows the editor: switching to another view-building
+    // class swaps the XML to that class. Anything else (the preview itself,
+    // a helper class, the settings) leaves the last reconstruction standing.
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (!previewOpen || !editor) {
         return;
       }
-      const changed = e.document.uri.toString();
-      for (const [virtualKey, sourceUri] of sources) {
-        if (sourceUri.toString() !== changed) {
-          continue;
-        }
-        const existing = timers.get(virtualKey);
-        if (existing) {
-          clearTimeout(existing);
-        }
-        timers.set(
-          virtualKey,
-          setTimeout(() => {
-            timers.delete(virtualKey);
-            provider.onDidChangeEmitter.fire(vscode.Uri.parse(virtualKey));
-          }, REFRESH_DEBOUNCE_MS)
-        );
+      if (isFollowable(editor.document)) {
+        follow(editor.document);
       }
     }),
 
-    // A closed preview tab does not need refreshing any more.
+    // The reconstruction follows the class's edits, shortly after each pause.
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (!previewOpen || !e.contentChanges.length) {
+        return;
+      }
+      if (e.document.uri.toString() === activeSource?.toString()) {
+        refresh(REFRESH_DEBOUNCE_MS);
+      }
+    }),
+
+    // A closed preview tab does not need following any more.
     vscode.workspace.onDidCloseTextDocument((doc) => {
-      if (doc.uri.scheme === XML_PREVIEW_SCHEME) {
-        const key = doc.uri.toString();
-        sources.delete(key);
-        lastContent.delete(key);
-        lastOffsets.delete(key);
-        diagnostics.delete(doc.uri);
-        const timer = timers.get(key);
+      if (doc.uri.toString() === PREVIEW_URI.toString()) {
+        previewOpen = false;
+        diagnostics.delete(PREVIEW_URI);
         if (timer) {
           clearTimeout(timer);
-          timers.delete(key);
+          timer = undefined;
         }
       }
     })

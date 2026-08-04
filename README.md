@@ -331,9 +331,13 @@ abap2UI5 views are strings assembled by builder calls, so what actually
 reaches `XMLView.create` is never visible in the source. *"abap2UI5: Show
 Reconstructed XML View"* opens exactly that — the reconstruction the view
 check validates — as a read-only, syntax-highlighted XML document beside the
-class, and keeps it following the edits, refreshing shortly after each
-pause. A class assembling more than one view (a popup next to its main view)
-shows them all, labelled.
+class.
+
+The preview **follows the editor**, the way the Markdown preview does:
+switch to another view-building class and the XML swaps to that class; edit
+the class and the XML re-renders shortly after each pause. A class that
+builds no views leaves the last reconstruction standing. A class assembling
+more than one view (a popup next to its main view) shows them all, labelled.
 
 The reconstruction remembers which builder call wrote each node and
 attribute, and the preview uses that both ways: the view check's findings

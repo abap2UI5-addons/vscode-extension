@@ -8,6 +8,10 @@
   its `open( )` / `leaf( )` / `a( )` in the class, and the view check's
   findings are mirrored onto the XML lines they concern - the structure and
   what is wrong with it, in one place.
+- **The XML preview follows the editor.** One preview, like the Markdown
+  preview: switch to another view-building class and the XML swaps to that
+  class, edit and it re-renders after each pause. A class that builds no
+  views leaves the last reconstruction standing instead of blanking the tab.
 - **Event navigation.** Go to Definition on the event name in
   `client->_event( 'GO' )` jumps to the `WHEN 'GO'` that handles it - and on
   the `WHEN` literal it jumps back to every place the view raises the event.
