@@ -5,6 +5,7 @@ const path = require("path");
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 const tests = process.argv.includes("--tests");
+const webTests = process.argv.includes("--webtest");
 
 /** The UI5 metadata snapshot of the bundled view checker ships next to the
  *  bundle - the property gate reads it at runtime. */
@@ -91,6 +92,16 @@ async function main() {
   copySnapshot();
   if (tests) {
     await buildTests();
+    return;
+  }
+  if (webTests) {
+    // The suite @vscode/test-web loads inside the browser host - next to
+    // the web bundle it exercises.
+    await esbuild.build({
+      ...webConfig(),
+      entryPoints: ["src/web/test/suite.ts"],
+      outfile: "dist/web/test.js",
+    });
     return;
   }
   const ctx = await esbuild.context({

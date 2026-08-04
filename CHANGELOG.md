@@ -17,6 +17,25 @@
   preview: switch to another view-building class and the XML swaps to that
   class, edit and it re-renders after each pause. A class that builds no
   views leaves the last reconstruction standing instead of blanking the tab.
+- **A binding path jumps to its declaration.** Go to Definition on
+  `{/MT_TRAVELS/STATUS}` lands on the `status` line of the `TYPES BEGIN OF`
+  block (or the `DATA` line for a root path) - the fourth corner of the
+  square: completion offers it, hover judges it, the gate reports it, and
+  now F12 goes there.
+- **`WHEN` branches count their raises.** A CodeLens over every `WHEN '…'`
+  the view actually raises says "raised n× in the view" and peeks the
+  `_event( )` calls. A `WHEN` nothing raises stays unannotated - the CASE
+  may switch over something else entirely.
+- **Rename an event everywhere at once.** F2 on an event name - in
+  `_event( 'GO' )` or on the `WHEN 'GO'` - renames every raise and the
+  handler together, so the view and the dispatch cannot drift apart.
+- **The detected UI5 version stays visible.** After the first launch the
+  status bar shows `UI5 1.xxx` for the active system; clicking it opens the
+  view-check settings.
+- **CI proves the web build.** `npm run test:web` activates the web bundle
+  in a real headless browser extension host (`@vscode/test-web`) and fails
+  the build when a module drags a node builtin into the web graph or the
+  activation throws - the gap the node-based suite could not cover.
 
 ## 0.18.0
 

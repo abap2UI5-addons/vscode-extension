@@ -631,6 +631,42 @@ export function eventUsagesOf(source: string, name: string): number[] {
   return out;
 }
 
+/** Every `WHEN '<name>'` of the source - what the usage lens hangs on. */
+export function whenBranches(source: string): NamedSpan[] {
+  const out: NamedSpan[] = [];
+  const re = /\bWHEN\s+(['`])([\w-]+)\1/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source))) {
+    const start = m.index + m[0].indexOf(m[1]) + 1;
+    out.push({ name: m[2], start, end: start + m[2].length });
+  }
+  return out;
+}
+
+/**
+ * The content spans of every literal naming this event - in `_event( )`
+ * calls and in `WHEN` branches alike. What a rename replaces: all of them
+ * together, so the view and the dispatch cannot drift apart.
+ */
+export function eventNameSpans(source: string, name: string): NamedSpan[] {
+  const out: NamedSpan[] = [];
+  const call = new RegExp(
+    `_event\\w*\\([^)]*?(['\`])(${escapeRe(name)})\\1`,
+    "gi"
+  );
+  let m: RegExpExecArray | null;
+  while ((m = call.exec(source))) {
+    const start = m.index + m[0].lastIndexOf(m[1] + m[2] + m[1]) + 1;
+    out.push({ name, start, end: start + name.length });
+  }
+  for (const branch of whenBranches(source)) {
+    if (branch.name.toUpperCase() === name.toUpperCase()) {
+      out.push(branch);
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
 /** The write position at `offset` in an ABAP source, or undefined when the
  *  cursor is not in a place the view metadata has anything to say about. */
 export function abapContextAt(

@@ -88,6 +88,12 @@ CI installs with `npm ci`, so `package-lock.json` has to stay in sync with
 `package.json` — a lockfile left behind fails the build before anything else
 runs.
 
+CI additionally runs `npm run test:web`: the web bundle activated in a
+headless browser host via `@vscode/test-web` (suite in
+`src/web/test/suite.ts`). It needs to download VS Code web and a playwright
+chromium, so it may not run in restricted environments — treat it as the CI
+gate for "does the web build actually load", not as part of the local loop.
+
 ## Releasing
 
 The `.vsix` is not committed; users download it from the GitHub release.

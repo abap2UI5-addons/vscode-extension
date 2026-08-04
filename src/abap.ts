@@ -65,6 +65,42 @@ export function classDefinitionOffset(source: string): number {
 }
 
 /**
+ * Where a binding path is declared in the class - the target of Go to
+ * Definition on `{/MT_TRAVELS/STATUS}`.
+ *
+ * Deliberately shallow: a path with more than one segment looks for the
+ * LAST segment as a field inside any `TYPES BEGIN OF … END OF` block (that
+ * is where the row fields live), and falls back to - or starts with, for a
+ * single segment - the root variable's `… TYPE …` declaration. Following
+ * the type chain precisely is the linter's business; for the jump, the
+ * declaration line of the name under the cursor is what helps.
+ */
+export function declarationSpan(
+  source: string,
+  path: string
+): { start: number; end: number } | undefined {
+  const segments = path.split("/").filter(Boolean);
+  if (!segments.length) {
+    return undefined;
+  }
+  const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  if (segments.length > 1) {
+    const field = segments[segments.length - 1];
+    for (const block of source.matchAll(/BEGIN OF \w+\s*,([\s\S]*?)END OF/gi)) {
+      const m = new RegExp(`\\b(${escape(field)})\\s+TYPE\\b`, "i").exec(block[1]);
+      if (m) {
+        const start = (block.index ?? 0) + block[0].indexOf(block[1]) + m.index;
+        return { start, end: start + field.length };
+      }
+    }
+  }
+  const root = segments[0];
+  const m = new RegExp(`\\b(${escape(root)})\\s+TYPE\\b`, "i").exec(source);
+  return m ? { start: m.index + m[0].indexOf(m[1]), end: m.index + m[0].indexOf(m[1]) + root.length } : undefined;
+}
+
+/**
  * Tokens in a runtime error message worth looking up in the class: binding
  * paths (`/MT_TRAVELS/STATUS`) and quoted names - the pieces UI5 error texts
  * carry that also appear verbatim in the source. Longest first, so the most

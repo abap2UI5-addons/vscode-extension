@@ -52,6 +52,37 @@ function parseVersionJson(body: string): Ui5VersionInfo | undefined {
   }
 }
 
+/** The detected version, kept visible - guessing it once was the problem. */
+let statusItem: vscode.StatusBarItem | undefined;
+
+function showStatus(
+  context: vscode.ExtensionContext,
+  origin: string,
+  info: Ui5VersionInfo
+): void {
+  if (!statusItem) {
+    statusItem = vscode.window.createStatusBarItem(
+      "abap2ui5.ui5version",
+      vscode.StatusBarAlignment.Left,
+      49 // right next to the running-app item
+    );
+    statusItem.name = "abap2UI5 UI5 version";
+    context.subscriptions.push(statusItem);
+  }
+  statusItem.text = `UI5 ${info.minor}`;
+  statusItem.tooltip = new vscode.MarkdownString(
+    `**${origin}** serves UI5 ${info.minor}` +
+      (info.distribution ? ` (${info.distribution})` : "") +
+      `\n\nClick to open the view-check settings.`
+  );
+  statusItem.command = {
+    title: "Open settings",
+    command: "workbench.action.openSettings",
+    arguments: ["abap2ui5.viewCheck"],
+  };
+  statusItem.show();
+}
+
 /**
  * Looks up the system's UI5 version and, when it disagrees with the
  * settings, offers once to adopt it. Fire-and-forget from the launch path.
@@ -86,6 +117,7 @@ export async function suggestSystemUi5(
     `ui5-detect: ${origin} serves UI5 ${info.minor}` +
       (info.distribution ? ` (${info.distribution})` : "")
   );
+  showStatus(context, origin, info);
 
   const cfg = vscode.workspace.getConfiguration("abap2ui5");
   const setMin = cfg.get<string>("viewCheck.minUi5", "1.71");

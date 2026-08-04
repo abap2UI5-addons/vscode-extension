@@ -250,7 +250,9 @@ gates instead, in the editor:
 - **The system can answer both** — after the first F9 against a system the
   extension reads its `sap-ui-version.json` (with the credentials the proxy
   already holds) and, when version or distribution disagree with these
-  settings, offers once per system to adopt the answer.
+  settings, offers once per system to adopt the answer. The detected version
+  stays visible in the status bar (`UI5 1.xxx`); clicking it opens these
+  settings.
 - **Property gate** — bundled with the extension, zero setup, instant:
   every control and property written in the view is resolved against a UI5
   metadata snapshot. A control that does not exist at all (`sap.m.Shell2` —
@@ -379,7 +381,12 @@ chain sets shown alongside. Clicking a node jumps to its builder call.
 
 Go to Definition on the event name in `client->_event( 'GO' )` jumps to the
 `WHEN 'GO'` branch that handles it; on the `WHEN` literal it goes the other
-way, to every place the view raises the event.
+way, to every place the view raises the event. A CodeLens over each `WHEN`
+the view raises says *raised n× in the view* and peeks the calls — and
+**F2** renames an event everywhere at once, raises and handler together.
+
+Go to Definition works on binding paths too: `{/MT_TRAVELS/STATUS}` lands on
+the `TYPES` field (or the `DATA` line for a root path) that declares it.
 
 ### Hover on binding paths
 
