@@ -31,6 +31,11 @@ tying the extension to a system is the launch URL you configure once.
   embedded preview: the full text goes to the **abap2UI5** output channel and
   the toolbar counts the errors in a badge — no browser devtools needed. See
   [Runtime errors](#runtime-errors-in-the-preview).
+- **Inspect: click the app, land in the code** – The 🎯 toolbar button
+  outlines the hovered control; a click jumps to the builder call that wrote
+  it. The `{ }` button next to it shows the running app's **JSON model** as
+  a document — live values next to the statically known shape. See
+  [Inspect and the live model](#inspect-and-the-live-model).
 - **Status bar** – While an app is running the status bar shows the class and
   the system; clicking it reloads the preview.
 - **Several systems** – Name your systems in `abap2ui5.systems` and switch
@@ -174,6 +179,26 @@ When the error text names a binding path or a quoted identifier that appears
 in the running class, the log adds the file and line right under the error —
 for local files as a clickable `path:line`.
 
+### Inspect and the live model
+
+Two more toolbar buttons talk to the running app through the same hook:
+
+- **Inspect (🎯)** starts a one-shot pick, like the element picker in
+  browser devtools: the hovered control is outlined, a click jumps to the
+  `open( )` / `leaf( )` call in the class that wrote it, Esc cancels. The
+  clicked control's type and parent chain are matched against the
+  reconstructed view — a row inside a bound list lands on its template, two
+  same-typed controls are told apart by their surroundings, and an `id`
+  written in the class settles the match outright. The class has to be open
+  in the window (it is where the jump goes).
+- **Model (`{ }`)** asks the app for its JSON model and shows it as a
+  read-only document beside the code — the live values next to the shape
+  that completion and hover derive statically. Every click refreshes the
+  same document, so it can stay open while you work.
+
+Both need the embedded preview (`tab` or `panel` mode) — in `external` mode
+the app runs in a real browser, which has its own devtools.
+
 ## Reloading (`abap2ui5.reloadOn`)
 
 Saving an ABAP class does not change what the server runs — only **activation**
@@ -225,7 +250,9 @@ gates instead, in the editor:
 - **The system can answer both** — after the first F9 against a system the
   extension reads its `sap-ui-version.json` (with the credentials the proxy
   already holds) and, when version or distribution disagree with these
-  settings, offers once per system to adopt the answer.
+  settings, offers once per system to adopt the answer. The detected version
+  stays visible in the status bar (`UI5 1.xxx`); clicking it opens these
+  settings.
 - **Property gate** — bundled with the extension, zero setup, instant:
   every control and property written in the view is resolved against a UI5
   metadata snapshot. A control that does not exist at all (`sap.m.Shell2` —
@@ -331,9 +358,13 @@ abap2UI5 views are strings assembled by builder calls, so what actually
 reaches `XMLView.create` is never visible in the source. *"abap2UI5: Show
 Reconstructed XML View"* opens exactly that — the reconstruction the view
 check validates — as a read-only, syntax-highlighted XML document beside the
-class, and keeps it following the edits, refreshing shortly after each
-pause. A class assembling more than one view (a popup next to its main view)
-shows them all, labelled.
+class.
+
+The preview **follows the editor**, the way the Markdown preview does:
+switch to another view-building class and the XML swaps to that class; edit
+the class and the XML re-renders shortly after each pause. A class that
+builds no views leaves the last reconstruction standing. A class assembling
+more than one view (a popup next to its main view) shows them all, labelled.
 
 The reconstruction remembers which builder call wrote each node and
 attribute, and the preview uses that both ways: the view check's findings
@@ -350,7 +381,12 @@ chain sets shown alongside. Clicking a node jumps to its builder call.
 
 Go to Definition on the event name in `client->_event( 'GO' )` jumps to the
 `WHEN 'GO'` branch that handles it; on the `WHEN` literal it goes the other
-way, to every place the view raises the event.
+way, to every place the view raises the event. A CodeLens over each `WHEN`
+the view raises says *raised n× in the view* and peeks the calls — and
+**F2** renames an event everywhere at once, raises and handler together.
+
+Go to Definition works on binding paths too: `{/MT_TRAVELS/STATUS}` lands on
+the `TYPES` field (or the `DATA` line for a root path) that declares it.
 
 ### Hover on binding paths
 

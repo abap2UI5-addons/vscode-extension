@@ -6,6 +6,7 @@ import {
   abapNsMap,
   BindingContext,
   eventNameAt,
+  eventNameSpans,
   eventUsagesOf,
   OutlineNode,
   viewOutline,
@@ -23,7 +24,7 @@ import {
   resolvePathKind,
   rowShapeFor,
 } from "./bindingpaths";
-import { usesBuilder } from "./abap";
+import { declarationSpan, usesBuilder } from "./abap";
 import { Snapshot } from "./metadata";
 import {
   controlsIn,
@@ -409,7 +410,93 @@ class EventDefinition implements vscode.DefinitionProvider {
         return new vscode.Location(doc.uri, doc.lineAt(at.line).range);
       });
     }
+
+    // From a {…} binding path to the DATA / TYPES line declaring it.
+    const data = snapshot();
+    const binding = abapBindingContextAt(text, offset, (control, member) =>
+      membersOf(data, control).some(
+        (m) => m.name === member && m.section === "aggregations"
+      )
+    );
+    if (binding) {
+      const path = text.slice(binding.start, binding.end);
+      const target = path && declarationSpan(text, path);
+      if (target) {
+        return [
+          {
+            originSelectionRange: new vscode.Range(
+              doc.positionAt(binding.start),
+              doc.positionAt(binding.end)
+            ),
+            targetUri: doc.uri,
+            targetRange: new vscode.Range(
+              doc.positionAt(target.start),
+              doc.positionAt(target.end)
+            ),
+          },
+        ];
+      }
+    }
     return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rename: an event name, everywhere it appears
+// ---------------------------------------------------------------------------
+
+class EventRename implements vscode.RenameProvider {
+  /** Only event names are renameable here - anything else defers to other
+   *  providers by throwing, which is the protocol for "not mine". */
+  prepareRename(
+    doc: vscode.TextDocument,
+    position: vscode.Position
+  ): { range: vscode.Range; placeholder: string } {
+    const text = doc.getText();
+    const offset = doc.offsetAt(position);
+    const span = eventNameAt(text, offset) ?? whenNameAt(text, offset);
+    if (!span) {
+      throw new Error("Only event names can be renamed here.");
+    }
+    return {
+      range: new vscode.Range(
+        doc.positionAt(span.start),
+        doc.positionAt(span.end)
+      ),
+      placeholder: span.name,
+    };
+  }
+
+  provideRenameEdits(
+    doc: vscode.TextDocument,
+    position: vscode.Position,
+    newName: string
+  ): vscode.WorkspaceEdit {
+    if (!/^[\w-]+$/.test(newName)) {
+      throw new Error(
+        "An event name may only contain letters, digits, _ and -."
+      );
+    }
+    const text = doc.getText();
+    const offset = doc.offsetAt(position);
+    const span = eventNameAt(text, offset) ?? whenNameAt(text, offset);
+    if (!span) {
+      throw new Error("Only event names can be renamed here.");
+    }
+    const edit = new vscode.WorkspaceEdit();
+    // Every literal naming the event - the _event( ) calls and the WHEN
+    // branches together, so the view and the dispatch cannot drift apart.
+    for (const target of eventNameSpans(text, span.name)) {
+      edit.replace(
+        doc.uri,
+        new vscode.Range(
+          doc.positionAt(target.start),
+          doc.positionAt(target.end)
+        ),
+        newName
+      );
+    }
+    return edit;
   }
 }
 
@@ -471,6 +558,7 @@ export function registerLanguageFeatures(
       ABAP_SELECTOR,
       new EventDefinition()
     ),
+    vscode.languages.registerRenameProvider(ABAP_SELECTOR, new EventRename()),
     // The label keeps this outline apart from the ABAP extension's own.
     vscode.languages.registerDocumentSymbolProvider(
       ABAP_SELECTOR,

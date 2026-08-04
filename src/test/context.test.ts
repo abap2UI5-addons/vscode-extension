@@ -327,3 +327,27 @@ test("a literal outside an _event call is not an event", () => {
   const src = HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `GO` ).";
   assert.equal(eventNameAt(src, src.lastIndexOf("`GO`") + 2), undefined);
 });
+
+test("whenBranches and eventNameSpans see every naming of an event", () => {
+  const {
+    eventNameSpans,
+    whenBranches,
+  } = require("../context") as typeof import("../context");
+  const src =
+    HEAD +
+    "    )->leaf( n = `Button` )->a( n = `press` v = client->_event( `GO` ) ).\n" +
+    "    )->leaf( n = `Button` )->a( n = `press` v = client->_event( val = `GO` ) ).\n" +
+    "    CASE client->get( )-event.\n" +
+    "      WHEN `GO`.\n" +
+    "      WHEN `STOP`.\n" +
+    "    ENDCASE.\n";
+  assert.deepEqual(
+    whenBranches(src).map((b: { name: string }) => b.name),
+    ["GO", "STOP"]
+  );
+  const spans = eventNameSpans(src, "GO");
+  assert.equal(spans.length, 3); // two raises, one WHEN
+  for (const span of spans) {
+    assert.equal(src.slice(span.start, span.end), "GO");
+  }
+});

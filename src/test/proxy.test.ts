@@ -28,9 +28,9 @@ test("something that is not HTML at all stays untouched", () => {
   assert.equal(injectRuntimeHook(body), body);
 });
 
-test("the hook is injected once, not once per marker", () => {
+test("the hook is injected once", () => {
   const out = injectRuntimeHook(`<html><head></head></html>`);
-  assert.equal(out.split("__abap2ui5Runtime").length - 1, 1);
+  assert.equal(out.split("abap2ui5-runtime-hook").length - 1, 1);
 });
 
 test("ADT search answers reduce to unique class names", () => {

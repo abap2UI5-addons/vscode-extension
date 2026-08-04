@@ -55,3 +55,29 @@ test("errorTokens pulls paths and quoted names out of an error text", () => {
   assert.equal(tokens[0].length >= tokens[tokens.length - 1].length, true);
   assert.deepEqual(errorTokens("nothing to see"), []);
 });
+
+test("declarationSpan finds the TYPES field, else the DATA line", () => {
+  const { declarationSpan } = require("../abap") as typeof import("../abap");
+  const src =
+    "CLASS zcl_x DEFINITION PUBLIC.\n" +
+    "  PUBLIC SECTION.\n" +
+    "    TYPES: BEGIN OF ty_s_travel,\n" +
+    "             id TYPE string,\n" +
+    "             status TYPE string,\n" +
+    "           END OF ty_s_travel.\n" +
+    "    DATA mt_travels TYPE STANDARD TABLE OF ty_s_travel WITH EMPTY KEY.\n" +
+    "    DATA mv_title TYPE string.\n" +
+    "ENDCLASS.\n";
+  const field = declarationSpan(src, "/MT_TRAVELS/STATUS");
+  assert.ok(field);
+  assert.equal(src.slice(field!.start, field!.end), "status");
+  const root = declarationSpan(src, "/MV_TITLE");
+  assert.ok(root);
+  assert.equal(src.slice(root!.start, root!.end), "mv_title");
+  // a relative path (a row field) resolves through the TYPES block too:
+  // its single segment is not a DATA variable, so the root fallback misses
+  // and the field lookup must have answered
+  const rel = declarationSpan(src, "/MT_TRAVELS/ID");
+  assert.equal(src.slice(rel!.start, rel!.end), "id");
+  assert.equal(declarationSpan(src, "/NOPE"), undefined);
+});

@@ -5,6 +5,7 @@ const path = require("path");
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 const tests = process.argv.includes("--tests");
+const webTests = process.argv.includes("--webtest");
 
 /** The UI5 metadata snapshot of the bundled view checker ships next to the
  *  bundle - the property gate reads it at runtime. */
@@ -81,7 +82,17 @@ function webConfig() {
       path: "./scripts/web-shims/path.js",
       url: "./scripts/web-shims/url.js",
     },
-    define: { "import.meta.url": "import_meta_url" },
+    define: {
+      "import.meta.url": "import_meta_url",
+      // A browser worker has neither; they only feed module-load-time path
+      // constants nothing in the web graph ever reads (snapshot.ts resolves
+      // its file next to the bundle, but the web entry feeds the snapshot
+      // through vscode.workspace.fs instead). Without the define the bare
+      // identifier throws at load time - the web smoke test caught exactly
+      // that.
+      __dirname: '"/web"',
+      __filename: '"/web/extension.js"',
+    },
     inject: ["scripts/import-meta-url-web-shim.mjs"],
     logLevel: "info",
   };
@@ -91,6 +102,16 @@ async function main() {
   copySnapshot();
   if (tests) {
     await buildTests();
+    return;
+  }
+  if (webTests) {
+    // The suite @vscode/test-web loads inside the browser host - next to
+    // the web bundle it exercises.
+    await esbuild.build({
+      ...webConfig(),
+      entryPoints: ["src/web/test/suite.ts"],
+      outfile: "dist/web/test.js",
+    });
     return;
   }
   const ctx = await esbuild.context({

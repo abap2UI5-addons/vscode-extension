@@ -27,6 +27,12 @@ jobs:
       - run: npm run package
       - run: npm run vsix
 
+      # The web bundle, activated in a real (headless) browser extension
+      # host - the one thing the node-based suite cannot prove. Downloads
+      # VS Code web and drives the playwright chromium fetched during
+      # npm ci, so it runs here and not in the sandboxed pre-push loop.
+      - run: npm run test:web
+
       # The .vsix of every branch, installable straight from the run page.
       - uses: actions/upload-artifact@v4
         with:

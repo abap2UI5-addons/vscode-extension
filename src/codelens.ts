@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { classDefinitionOffset, isAppClass, usesBuilder } from "./abap";
+import { eventUsagesOf, whenBranches } from "./context";
 
 /*
  * The three things you do to an app class, offered where the class is
@@ -61,9 +62,40 @@ class AppCodeLens implements vscode.CodeLensProvider {
           command: "abap2ui5.checkViews",
         })
       );
+      lenses.push(...whenLenses(doc, text));
     }
     return lenses;
   }
+}
+
+/**
+ * One lens over every `WHEN '…'` the view actually raises: "raised n× in
+ * the view", opening a peek at the `_event( )` call(s). A WHEN nothing
+ * raises gets no lens - the CASE may switch over something else entirely,
+ * and a wrong "0×" would accuse innocent code.
+ */
+function whenLenses(doc: vscode.TextDocument, text: string): vscode.CodeLens[] {
+  const lenses: vscode.CodeLens[] = [];
+  for (const branch of whenBranches(text)) {
+    const usages = eventUsagesOf(text, branch.name);
+    if (!usages.length) {
+      continue;
+    }
+    const at = doc.positionAt(branch.start);
+    const locations = usages.map((usage) => {
+      const pos = doc.positionAt(usage);
+      return new vscode.Location(doc.uri, doc.lineAt(pos.line).range);
+    });
+    lenses.push(
+      new vscode.CodeLens(new vscode.Range(at, at), {
+        title: `$(zap) raised ${usages.length}× in the view`,
+        tooltip: "Peek the _event( ) call(s) raising this event",
+        command: "editor.action.showReferences",
+        arguments: [doc.uri, at, locations],
+      })
+    );
+  }
+  return lenses;
 }
 
 export function registerCodeLens(context: vscode.ExtensionContext): void {

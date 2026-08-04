@@ -55,13 +55,27 @@ export const RUNTIME_MESSAGE_MARKER = "__abap2ui5Runtime";
 const RUNTIME_MESSAGE_CAP = 50;
 
 /** The hook itself. ES5 on purpose: it runs inside whatever the system
- *  serves, which may be an old-browser error page. */
-const RUNTIME_HOOK = `<script>(function(){
+ *  serves, which may be an old-browser error page.
+ *
+ *  Beyond the error forwarding it answers two commands the preview posts
+ *  into the iframe (marked `__abap2ui5Cmd`):
+ *
+ *  - `inspect`: highlight the hovered UI5 control and, on click, send the
+ *    control's type/id chain up to the preview - the extension matches it
+ *    against the reconstructed view and jumps to the builder call. One-shot:
+ *    a click (or Escape) ends the mode and says so.
+ *  - `model`: send the app's default JSON model data - the running
+ *    counterpart of the statically derived model shape.
+ *
+ *  The hook runs inside the app page itself, so it may use the app's own
+ *  `sap` global to resolve DOM elements to real controls. */
+const RUNTIME_HOOK = `<script>/*abap2ui5-runtime-hook*/(function(){
 var sent=0;
+function post(m){try{parent.postMessage(m,'*');}catch(e){}}
 function send(kind,text){
   if(sent>=${RUNTIME_MESSAGE_CAP})return;
   sent++;
-  try{parent.postMessage({${RUNTIME_MESSAGE_MARKER}:kind,text:String(text).slice(0,2000)},'*');}catch(e){}
+  post({${RUNTIME_MESSAGE_MARKER}:kind,text:String(text).slice(0,2000)});
 }
 window.addEventListener('error',function(e){
   var msg=e&&e.message?e.message:'Script error';
@@ -82,6 +96,87 @@ console.error=function(){
   send('console',parts.join(' '));
   return orig.apply(console,arguments);
 };
+
+// ---- controls: DOM element -> UI5 control -------------------------------
+function byId(id){
+  try{if(window.sap&&sap.ui&&sap.ui.getCore){var c=sap.ui.getCore().byId(id);if(c)return c;}}catch(e){}
+  try{return sap.ui.core.Element.registry.get(id);}catch(e){}
+  return null;
+}
+function controlEl(t){
+  while(t&&t!==document.documentElement){
+    if(t.getAttribute&&t.getAttribute('data-sap-ui'))return t;
+    t=t.parentNode;
+  }
+  return null;
+}
+
+// ---- inspect mode -------------------------------------------------------
+var inspectOn=false,hoverEl=null,prevOutline='';
+function clearHover(){
+  if(hoverEl){hoverEl.style.outline=prevOutline;hoverEl=null;}
+}
+function setInspect(on){
+  if(on===inspectOn)return;
+  inspectOn=on;
+  clearHover();
+  document.documentElement.style.cursor=on?'crosshair':'';
+}
+document.addEventListener('mouseover',function(e){
+  if(!inspectOn)return;
+  var el=controlEl(e.target);
+  if(el===hoverEl)return;
+  clearHover();
+  if(el){hoverEl=el;prevOutline=el.style.outline;el.style.outline='2px solid #0a84ff';}
+},true);
+document.addEventListener('click',function(e){
+  if(!inspectOn)return;
+  e.preventDefault();e.stopPropagation();
+  var el=controlEl(e.target);
+  var chain=[];
+  var ctrl=el&&byId(el.getAttribute('data-sap-ui'));
+  while(ctrl&&chain.length<15){
+    try{chain.push({type:ctrl.getMetadata().getName(),id:ctrl.getId()});}catch(ex){}
+    ctrl=ctrl.getParent&&ctrl.getParent();
+  }
+  setInspect(false);
+  post({${RUNTIME_MESSAGE_MARKER}:'inspect-state',on:false});
+  if(chain.length){post({${RUNTIME_MESSAGE_MARKER}:'inspect',chain:chain});}
+},true);
+document.addEventListener('keydown',function(e){
+  if(inspectOn&&e.key==='Escape'){
+    setInspect(false);
+    post({${RUNTIME_MESSAGE_MARKER}:'inspect-state',on:false});
+  }
+},true);
+
+// ---- model dump ---------------------------------------------------------
+function sendModel(){
+  try{
+    var el=document.querySelector('[data-sap-ui]');
+    var ctrl=el&&byId(el.getAttribute('data-sap-ui'));
+    var model=ctrl&&ctrl.getModel&&ctrl.getModel();
+    if(!model&&window.sap&&sap.ui&&sap.ui.getCore&&sap.ui.getCore().getModel){
+      model=sap.ui.getCore().getModel();
+    }
+    if(!model||!model.getData){
+      post({${RUNTIME_MESSAGE_MARKER}:'model',error:'no JSON model found on the app (is it still loading?)'});
+      return;
+    }
+    var text=JSON.stringify(model.getData());
+    post({${RUNTIME_MESSAGE_MARKER}:'model',text:String(text).slice(0,2000000)});
+  }catch(ex){
+    post({${RUNTIME_MESSAGE_MARKER}:'model',error:String(ex)});
+  }
+}
+
+// ---- commands from the preview ------------------------------------------
+window.addEventListener('message',function(evt){
+  var cmd=evt&&evt.data&&evt.data.__abap2ui5Cmd;
+  if(!cmd)return;
+  if(cmd==='inspect'){setInspect(!!evt.data.on);}
+  if(cmd==='model'){sendModel();}
+});
 })();</script>`;
 
 /**

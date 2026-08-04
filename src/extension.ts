@@ -19,6 +19,9 @@ import { expandTemplate, originOf, sapClientOf, withParams } from "./urls";
 import { suggestSystemUi5 } from "./ui5detect";
 import { registerAppSearch } from "./appsearch";
 import { APP_TEMPLATE } from "./template";
+import { abapNsMap, viewOutline } from "./context";
+import { matchOutline, RuntimeControl } from "./inspect";
+import { ModelView, registerModelView } from "./modelview";
 import {
   allSystems,
   askForTemplate,
@@ -109,6 +112,9 @@ let currentTarget: AppTarget | undefined;
 let statusItem: vscode.StatusBarItem | undefined;
 
 let output: vscode.OutputChannel | undefined;
+
+/** The live-model document, set up during activation. */
+let modelView: ModelView | undefined;
 
 /** The extension context, for the pieces reached outside command scope. */
 let ctx: vscode.ExtensionContext | undefined;
@@ -329,8 +335,32 @@ let previewProvider: PreviewViewProvider | undefined;
 
 function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void {
   const message = msg as
-    | { type?: string; command?: string; name?: string; value?: string; kind?: string; text?: string }
+    | {
+        type?: string;
+        command?: string;
+        name?: string;
+        value?: string;
+        kind?: string;
+        text?: string;
+        error?: string;
+        chain?: unknown;
+      }
     | undefined;
+  // Inspect mode: a control was clicked in the running app.
+  if (message?.type === "inspected") {
+    revealInspectedControl(
+      Array.isArray(message.chain) ? (message.chain as RuntimeControl[]) : []
+    );
+    return;
+  }
+  // The app answered the model-dump command.
+  if (message?.type === "appModel") {
+    void modelView?.show(target?.className ?? "APP", {
+      text: message.text,
+      error: message.error || undefined,
+    });
+    return;
+  }
   if (message?.type === "openExternal" && target) {
     void vscode.env.openExternal(vscode.Uri.parse(target.externalUrl));
     return;
@@ -372,6 +402,15 @@ function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void
  * log - for file-scheme documents that line is clickable in the output
  * channel. Best-effort on purpose: no hit, no line.
  */
+/** The open ABAP documents, narrowed to one class when a name is given. */
+function openAbapDocs(className?: string): vscode.TextDocument[] {
+  return vscode.workspace.textDocuments.filter(
+    (doc) =>
+      (doc.languageId === "abap" || /\.abap$/i.test(doc.fileName)) &&
+      (!className || classNameOf(doc.getText(), doc.fileName) === className)
+  );
+}
+
 function locateErrorInSource(
   errorText: string,
   className: string | undefined
@@ -383,11 +422,7 @@ function locateErrorInSource(
   if (!tokens.length) {
     return undefined;
   }
-  const candidates = vscode.workspace.textDocuments.filter(
-    (doc) =>
-      (doc.languageId === "abap" || /\.abap$/i.test(doc.fileName)) &&
-      (!className || classNameOf(doc.getText(), doc.fileName) === className)
-  );
+  const candidates = openAbapDocs(className);
   for (const doc of candidates) {
     const text = doc.getText();
     for (const token of tokens) {
@@ -404,6 +439,48 @@ function locateErrorInSource(
     }
   }
   return undefined;
+}
+
+/**
+ * A control clicked in inspect mode, revealed in the class: the runtime
+ * chain (type/id, innermost first) is matched against the view outline and
+ * the winning builder call is selected. Aggregation templates come out
+ * right by construction - every cloned row item matches the one call that
+ * wrote the template.
+ */
+function revealInspectedControl(chain: RuntimeControl[]): void {
+  const className = currentTarget?.className;
+  const doc = openAbapDocs(className)[0];
+  const clicked = chain[0]?.type ?? "the control";
+  if (!doc) {
+    vscode.window.showInformationMessage(
+      `abap2UI5: open the class ${className ?? "of the app"} to jump to the ` +
+        "inspected control."
+    );
+    return;
+  }
+  const text = doc.getText();
+  const node = matchOutline(viewOutline(text), abapNsMap(text), chain);
+  if (!node) {
+    log(`inspect: nothing in ${doc.fileName} matched ${clicked}`);
+    vscode.window.showInformationMessage(
+      `abap2UI5: could not match ${clicked} to a builder call in ` +
+        `${className ?? "the class"} - is the shown app up to date?`
+    );
+    return;
+  }
+  log(`inspect: ${clicked} -> ${node.label}`);
+  const column = vscode.window.visibleTextEditors.find(
+    (editor) => editor.document === doc
+  )?.viewColumn;
+  void vscode.window.showTextDocument(doc, {
+    viewColumn: column,
+    selection: new vscode.Range(
+      doc.positionAt(node.selStart),
+      doc.positionAt(node.selEnd)
+    ),
+    preserveFocus: false,
+  });
 }
 
 // Editor position the focus should return to after F9.
@@ -989,6 +1066,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   watchProxyStatus(context, proxy, provider);
+  modelView = registerModelView(context, log);
 
   statusItem = vscode.window.createStatusBarItem(
     "abap2ui5.status",

@@ -36,6 +36,8 @@ find a German string anywhere, it is a leftover — translate it.
 | `src/template.ts` | The app-class skeleton both entries insert |
 | `src/ui5detect.ts` | Reads the system's `sap-ui-version.json` and offers to align the view-check settings |
 | `src/appsearch.ts` | "Run an App from the System": QuickPick over the ADT quick search |
+| `src/inspect.ts` | Inspect mode's matcher: runtime control chain -> outline node (the builder call to jump to) |
+| `src/modelview.ts` | The live-model document the preview's `{ }` button fills |
 | `src/webview.ts` | HTML for the preview and the welcome screen (theme variables, CSP nonce, theme/language pickers, the open-mode-aware empty state) |
 | `src/proxy.ts` | Local reverse proxy that injects basic auth so the embedded iframe avoids a 401 |
 | `src/systems.ts` | Named launch profiles, the active-system state, credentials per host |
@@ -61,10 +63,11 @@ not committed.
 
 **The `vscode`-free boundary is load-bearing.** `abap.ts`, `urls.ts`,
 `context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts`,
-`bindingpaths.ts`, `xmlformat.ts`, `gate.ts`, `template.ts`, `proxy.ts` and
-`webview.ts` (HTML strings only — the state it renders is passed in) must
-not import `vscode`: the test suite bundles them for plain Node, and an
-accidental import turns a unit test into a module-not-found error. Put the interesting logic
+`bindingpaths.ts`, `xmlformat.ts`, `gate.ts`, `template.ts`, `inspect.ts`,
+`proxy.ts` and `webview.ts` (HTML strings only — the state it renders is
+passed in) must not import `vscode`: the test suite bundles them for plain
+Node, and an accidental import turns a unit test into a module-not-found
+error. Put the interesting logic
 there and keep the VS Code modules to plumbing — that is what made the regex
 bugs (`INTERFACES:`, a class name inside a comment) testable at all.
 
@@ -84,6 +87,12 @@ npm run vsix      # vsce package, catches manifest errors
 CI installs with `npm ci`, so `package-lock.json` has to stay in sync with
 `package.json` — a lockfile left behind fails the build before anything else
 runs.
+
+CI additionally runs `npm run test:web`: the web bundle activated in a
+headless browser host via `@vscode/test-web` (suite in
+`src/web/test/suite.ts`). It needs to download VS Code web and a playwright
+chromium, so it may not run in restricted environments — treat it as the CI
+gate for "does the web build actually load", not as part of the local loop.
 
 ## Releasing
 
