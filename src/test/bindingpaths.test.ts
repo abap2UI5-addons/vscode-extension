@@ -61,3 +61,19 @@ test("a self-referential shape stops at the depth cap instead of hanging", () =>
   assert.ok(offers.length > 0);
   assert.ok(offers.length < 100);
 });
+
+test("resolvePathKind mirrors the gate segment by segment", () => {
+  const { resolvePathKind } = require("../bindingpaths") as typeof import("../bindingpaths");
+  assert.equal(resolvePathKind(SHAPE, "/NAME"), "field");
+  assert.equal(resolvePathKind(SHAPE, "/ADDRESS"), "structure");
+  assert.equal(resolvePathKind(SHAPE, "/TRAVELS"), "table");
+  assert.equal(resolvePathKind(SHAPE, "/TRAVELS/STATUS"), "field");
+  assert.equal(resolvePathKind(SHAPE, "/TRAVELS/STOPS"), "table");
+  assert.equal(resolvePathKind(SHAPE, "/DDIC/ANYTHING"), "unknown-shape");
+  assert.equal(resolvePathKind(SHAPE, "/NOPE"), "missing");
+  assert.equal(resolvePathKind(SHAPE, "/NAME/DEEPER"), "missing");
+  // relative resolution runs against a row
+  const row = rowShapeFor(SHAPE, ["/TRAVELS"]);
+  assert.equal(resolvePathKind(row, "STATUS"), "field");
+  assert.equal(resolvePathKind(row, "MISSING"), "missing");
+});

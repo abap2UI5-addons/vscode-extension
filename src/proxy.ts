@@ -111,6 +111,24 @@ export function injectRuntimeHook(html: string): string {
  *  size is not the app page the hook is for. */
 const INJECT_MAX_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Class names out of an ADT quick-search answer. The tag's attribute order
+ * is not fixed, so the tag is matched first and its attributes second; only
+ * classes count (`CLAS/OC`) - the search itself is not told, because not
+ * every ADT version accepts the filter parameter.
+ */
+export function parseAdtClassNames(xml: string): string[] {
+  const names: string[] = [];
+  for (const tag of xml.matchAll(/<adtcore:objectReference\b[^>]*>/g)) {
+    const type = /adtcore:type="([^"]*)"/.exec(tag[0])?.[1];
+    const name = /adtcore:name="([^"]*)"/.exec(tag[0])?.[1];
+    if (type === "CLAS/OC" && name && !names.includes(name)) {
+      names.push(name);
+    }
+  }
+  return names;
+}
+
 export class SapProxy {
   private server?: http.Server;
   private port?: number;
@@ -169,10 +187,15 @@ export class SapProxy {
    * Resolves to whatever of the two the answer carried. Rejects with an
    * {@link AdtStatusError} on a non-2xx status.
    */
-  fetchClassState(
-    className: string,
-    sapClient?: string
-  ): Promise<AdtClassState> {
+  /**
+   * One GET against the system with the credentials the proxy already holds -
+   * what the ADT lookups and the UI5-version detection are built on. The
+   * body is capped: everything asked for this way is a small text answer.
+   */
+  fetchFromSystem(
+    path: string,
+    accept = "application/xml, application/json, */*"
+  ): Promise<{ status: number; body: string }> {
     const target = this.target;
     const auth = this.authHeader;
     if (!target || !auth) {
@@ -180,10 +203,6 @@ export class SapProxy {
     }
     const isHttps = target.protocol === "https:";
     const mod = isHttps ? https : http;
-    const path =
-      "/sap/bc/adt/oo/classes/" +
-      encodeURIComponent(className.toLowerCase()) +
-      (sapClient ? `?sap-client=${encodeURIComponent(sapClient)}` : "");
 
     return new Promise((resolve, reject) => {
       const req = mod.request(
@@ -195,7 +214,7 @@ export class SapProxy {
           path,
           headers: {
             authorization: auth,
-            accept: "application/xml, */*",
+            accept,
           },
           rejectUnauthorized: false,
         },
@@ -204,32 +223,40 @@ export class SapProxy {
           let body = "";
           res.setEncoding("utf8");
           res.on("data", (chunk: string) => {
-            // The attribute sits on the root element; cap just in case.
-            if (body.length < 64 * 1024) {
+            if (body.length < 256 * 1024) {
               body += chunk;
             }
           });
-          res.on("end", () => {
-            if (status < 200 || status >= 300) {
-              reject(new AdtStatusError(status));
-              return;
-            }
-            // First occurrences in document order sit on the root element.
-            const version = body.match(/adtcore:version="(active|inactive)"/);
-            const changedAt = body.match(/adtcore:changedAt="([^"]+)"/);
-            resolve({
-              version: version
-                ? (version[1] as "active" | "inactive")
-                : undefined,
-              changedAt: changedAt ? changedAt[1] : undefined,
-            });
-          });
+          res.on("end", () => resolve({ status, body }));
         }
       );
-      req.setTimeout(8000, () => req.destroy(new Error("ADT request timed out")));
+      req.setTimeout(8000, () =>
+        req.destroy(new Error("request to the system timed out"))
+      );
       req.on("error", reject);
       req.end();
     });
+  }
+
+  async fetchClassState(
+    className: string,
+    sapClient?: string
+  ): Promise<AdtClassState> {
+    const path =
+      "/sap/bc/adt/oo/classes/" +
+      encodeURIComponent(className.toLowerCase()) +
+      (sapClient ? `?sap-client=${encodeURIComponent(sapClient)}` : "");
+    const { status, body } = await this.fetchFromSystem(path);
+    if (status < 200 || status >= 300) {
+      throw new AdtStatusError(status);
+    }
+    // First occurrences in document order sit on the root element.
+    const version = body.match(/adtcore:version="(active|inactive)"/);
+    const changedAt = body.match(/adtcore:changedAt="([^"]+)"/);
+    return {
+      version: version ? (version[1] as "active" | "inactive") : undefined,
+      changedAt: changedAt ? changedAt[1] : undefined,
+    };
   }
 
   private handle(req: http.IncomingMessage, res: http.ServerResponse): void {

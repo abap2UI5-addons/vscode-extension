@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.18.0
+
+- **The reconstructed XML is navigable and honest about problems.** The
+  reconstruction records which builder call wrote every node and attribute,
+  so the XML preview now uses it: **Go to Definition** on any line jumps to
+  its `open( )` / `leaf( )` / `a( )` in the class, and the view check's
+  findings are mirrored onto the XML lines they concern - the structure and
+  what is wrong with it, in one place.
+- **Event navigation.** Go to Definition on the event name in
+  `client->_event( 'GO' )` jumps to the `WHEN 'GO'` that handles it - and on
+  the `WHEN` literal it jumps back to every place the view raises the event.
+  Until now that round trip was a text search by hand.
+- **The view hierarchy in the Outline.** A class building views gets its
+  `open( )` / `leaf( )` nesting as a labelled tree in the Outline pane
+  (`abap2UI5 view`), with the `id` a chain sets shown alongside - a long
+  view method reads as a tree again, and the Outline clicks straight to the
+  builder call.
+- **Hover on binding paths.** Hovering a `{…}` path says what the derived
+  model resolves it to - a field, a structure, a table (and that an
+  aggregation binds it), a path under an undeclared DDIC type (accepted
+  unchecked), or **missing** - the same verdict the gate's
+  `unknown-binding-path` rule reaches, before it has to.
+- **Runtime errors point back at the source.** When a forwarded runtime
+  error names a binding path or a quoted identifier that appears in the
+  running class, the output channel adds the file and line right under the
+  error - for local files as a clickable `path:line`.
+- **The system says which UI5 it runs.** After the first launch against a
+  system the extension reads its `sap-ui-version.json` (with the credentials
+  the proxy already holds) and, when version or distribution disagree with
+  the view-check settings, offers once per system to adopt the answer. No
+  more guessing `minUi5`.
+- **"Run an App from the System."** A picker backed by the system's ADT
+  quick search: type part of a class name, pick, launch - no need to have
+  the class open or to have run it before. (A name search - whether the
+  class is an app, the launch shows.)
+- **Runs in the browser.** The extension now ships a web bundle for
+  vscode.dev, github.dev and the browser-based SAP Business Application
+  Studio: completion, hover, binding paths, the in-process property gate,
+  quick-fix-free diagnostics, the reconstructed XML view, outline and event
+  navigation all work there - everything that needs no process and no
+  socket. The embedded preview, ADT integration, render gate and MCP server
+  stay desktop-only, and their commands hide from the palette on the web.
+  One knowing gap: the web check reads the VS Code settings only, not a
+  repository's `abap2ui5lint.jsonc`.
+- **Getting-started walkthrough.** VS Code's Welcome page now carries the
+  whole loop - launch URL, F9, Ctrl+F3, view check, reconstructed XML, MCP -
+  as a six-step walkthrough. The Marketplace listing gains the categories
+  Programming Languages and Linters.
+- **The linter pin moves by itself.** A weekly workflow re-resolves the
+  pinned `@abap2ui5/linter` commit, runs the full gate over the result and
+  opens a PR - new rules and metadata reach the editor without anyone
+  remembering the bump (AGENTS.md calls it the release lever; now it pulls
+  itself).
+
 ## 0.17.0
 
 - **Runtime errors of the running app reach VS Code.** The embedded preview

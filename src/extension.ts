@@ -9,13 +9,16 @@ import {
 } from "./webview";
 import { registerMcp } from "./mcp";
 import { registerRenderGate } from "./rendergate";
-import { registerViewCheck } from "./viewcheck";
+import { findingsNow, registerViewCheck } from "./viewcheck";
 import { registerXmlPreview } from "./xmlpreview";
 import { registerQuickFix } from "./quickfix";
 import { registerLanguageFeatures } from "./language";
 import { registerCodeLens } from "./codelens";
-import { classNameOf, isAppClass } from "./abap";
+import { classNameOf, errorTokens, isAppClass } from "./abap";
 import { expandTemplate, originOf, sapClientOf, withParams } from "./urls";
+import { suggestSystemUi5 } from "./ui5detect";
+import { registerAppSearch } from "./appsearch";
+import { APP_TEMPLATE } from "./template";
 import {
   allSystems,
   askForTemplate,
@@ -342,6 +345,10 @@ function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void
           ? "console.error"
           : "error";
     log(`app ${target?.className ?? "?"}: ${kind}: ${message.text ?? ""}`);
+    const located = locateErrorInSource(message.text ?? "", target?.className);
+    if (located) {
+      log(`  ↳ ${located}`);
+    }
     return;
   }
   if (message?.type === "showRuntimeLog") {
@@ -356,6 +363,47 @@ function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void
   if (message?.type === "command" && message.command?.startsWith(`${CONFIG_SECTION}.`)) {
     void vscode.commands.executeCommand(message.command);
   }
+}
+
+/**
+ * Points a runtime error back at the source that likely caused it: the error
+ * text's binding paths and quoted names are searched in the running class
+ * (any open document of it), and the first hit becomes a `file:line` in the
+ * log - for file-scheme documents that line is clickable in the output
+ * channel. Best-effort on purpose: no hit, no line.
+ */
+function locateErrorInSource(
+  errorText: string,
+  className: string | undefined
+): string | undefined {
+  if (!errorText) {
+    return undefined;
+  }
+  const tokens = errorTokens(errorText);
+  if (!tokens.length) {
+    return undefined;
+  }
+  const candidates = vscode.workspace.textDocuments.filter(
+    (doc) =>
+      (doc.languageId === "abap" || /\.abap$/i.test(doc.fileName)) &&
+      (!className || classNameOf(doc.getText(), doc.fileName) === className)
+  );
+  for (const doc of candidates) {
+    const text = doc.getText();
+    for (const token of tokens) {
+      const ix = text.indexOf(token);
+      if (ix < 0) {
+        continue;
+      }
+      const line = doc.positionAt(ix).line + 1;
+      const label =
+        doc.uri.scheme === "file"
+          ? vscode.workspace.asRelativePath(doc.uri)
+          : doc.fileName;
+      return `${label}:${line}  (matched "${token}")`;
+    }
+  }
+  return undefined;
 }
 
 // Editor position the focus should return to after F9.
@@ -562,6 +610,10 @@ async function runApp(
     );
     return;
   }
+
+  // First contact with this system: ask it which UI5 it serves, and offer
+  // to align the view check with the answer. Fire-and-forget by design.
+  void suggestSystemUi5(context, proxy, origin, log);
 
   // Remember the cursor position; open the window in which focus stolen by
   // the loading app is handed back (the content loads asynchronously).
@@ -1102,44 +1154,43 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
+  registerAppSearch(context, {
+    proxy,
+    // The picker needs the system reachable before it can search: same
+    // system pick and credential flow F9 uses, ending in a started proxy.
+    connect: async () => {
+      const system = await ensureSystem(context);
+      if (!system) {
+        return undefined;
+      }
+      const expanded = urlFor(system, "PROBE");
+      const origin = originOf(expanded);
+      if (!origin) {
+        vscode.window.showErrorMessage(
+          `abap2UI5: the launch URL of ${system.name} is not a valid URL.`
+        );
+        return undefined;
+      }
+      const creds = await ensureCredentials(context, origin);
+      if (!creds) {
+        return undefined;
+      }
+      await proxy.start(origin, creds.user, creds.pass);
+      return { sapClient: sapClientOf(expanded) };
+    },
+    run: (className) => runApp(context, proxy, provider, className),
+    recent: () => recentApps(context),
+    log,
+  });
+
   registerViewCheck(context, log);
-  registerXmlPreview(context, log);
+  registerXmlPreview(context, log, findingsNow);
   registerQuickFix(context, log);
   registerLanguageFeatures(context, log);
   registerCodeLens(context);
   registerRenderGate(context, log);
   registerMcp(context, log);
 }
-
-/*
- * The skeleton "Insert App Template" writes. It builds its view with
- * z2ui5_cl_ai_xml on purpose: that is the builder abap2UI5 is standardising
- * on, and the only one the view check can reconstruct - a template using the
- * older z2ui5_cl_xml_view handed out a class the extension's own checker then
- * ignored.
- */
-const APP_TEMPLATE = `CLASS zcl_my_app DEFINITION PUBLIC.
-  PUBLIC SECTION.
-    INTERFACES z2ui5_if_app.
-ENDCLASS.
-
-CLASS zcl_my_app IMPLEMENTATION.
-  METHOD z2ui5_if_app~main.
-
-    DATA(view) = z2ui5_cl_ai_xml=>factory( ).
-    view->open( n = \`View\` ns = \`mvc\`
-        )->a( n = \`xmlns\`     v = \`sap.m\`
-        )->a( n = \`xmlns:mvc\` v = \`sap.ui.core.mvc\`
-        )->open( n = \`Page\`
-        )->a( n = \`title\` v = \`Hello abap2UI5\`
-        )->leaf( n = \`Text\`
-        )->a( n = \`text\` v = \`My first app\` ).
-
-    client->view_display( view->stringify( ) ).
-
-  ENDMETHOD.
-ENDCLASS.
-`;
 
 async function newApp(): Promise<void> {
   const editor = vscode.window.activeTextEditor;

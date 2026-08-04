@@ -7,8 +7,14 @@ declare module "@abap2ui5/linter/reconstruct" {
   export interface ViewNode {
     name: string | null;
     ns: string | null;
-    attrs: Array<[string, string]>;
+    /** The third element is the character offset of the `a( )` call that
+     *  wrote the attribute - absent on nodes parseXml( ) produced. */
+    attrs: Array<[string, string] | [string, string, number]>;
     children: ViewNode[];
+    /** Character offset of the `open( )` / `leaf( )` call - reconstruction
+     *  offsets are valid offsets into the original source (scrub( ) is
+     *  offset-preserving). Absent on parseXml( ) nodes. */
+    offset?: number;
   }
 
   export interface PreparedAbap {

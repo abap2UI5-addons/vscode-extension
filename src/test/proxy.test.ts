@@ -32,3 +32,14 @@ test("the hook is injected once, not once per marker", () => {
   const out = injectRuntimeHook(`<html><head></head></html>`);
   assert.equal(out.split("__abap2ui5Runtime").length - 1, 1);
 });
+
+test("ADT search answers reduce to unique class names", () => {
+  const { parseAdtClassNames } = require("../proxy") as typeof import("../proxy");
+  const xml = `<?xml version="1.0"?><adtcore:objectReferences xmlns:adtcore="x">
+    <adtcore:objectReference adtcore:type="CLAS/OC" adtcore:name="ZCL_APP_ONE" adtcore:description="d"/>
+    <adtcore:objectReference adtcore:name="ZCL_APP_TWO" adtcore:type="CLAS/OC"/>
+    <adtcore:objectReference adtcore:type="PROG/P" adtcore:name="ZREPORT"/>
+    <adtcore:objectReference adtcore:type="CLAS/OC" adtcore:name="ZCL_APP_ONE"/>
+  </adtcore:objectReferences>`;
+  assert.deepEqual(parseAdtClassNames(xml), ["ZCL_APP_ONE", "ZCL_APP_TWO"]);
+});

@@ -9,6 +9,12 @@
  * the namespace declarations first. The linter stays the one source of what
  * the tree contains.
  *
+ * The reconstruction records on every node and attribute the offset of the
+ * builder call that wrote it (and scrub( ) is offset-preserving, so those are
+ * offsets into the class as it stands). The formatter carries them through as
+ * a line -> source-offset map, which is what makes the XML clickable: a line
+ * knows the `open( )` / `leaf( )` / `a( )` it came from.
+ *
  * `vscode`-free: nodes in, string out - covered by the test suite.
  */
 
@@ -30,14 +36,39 @@ function escapeAttr(value: string): string {
     .replace(/\t/g, "&#x9;");
 }
 
-/** xmlns declarations first - they are what the rest of the element means. */
-function sortedAttrs(attrs: Array<[string, string]>): Array<[string, string]> {
-  const ns = attrs.filter(([name]) => name === "xmlns" || name.startsWith("xmlns:"));
-  const rest = attrs.filter(([name]) => name !== "xmlns" && !name.startsWith("xmlns:"));
-  return [...ns, ...rest];
+/** One attribute as the formatter sees it: xmlns first, offsets along. */
+interface Attr {
+  text: string;
+  offset?: number;
 }
 
-function formatNode(node: ViewNode, depth: number, out: string[]): void {
+function sortedAttrs(node: ViewNode): Attr[] {
+  const all = node.attrs.map((attr) => ({
+    text: `${attr[0]}="${escapeAttr(attr[1])}"`,
+    offset: typeof attr[2] === "number" ? attr[2] : undefined,
+    ns: attr[0] === "xmlns" || attr[0].startsWith("xmlns:"),
+  }));
+  return [...all.filter((a) => a.ns), ...all.filter((a) => !a.ns)];
+}
+
+export interface FormattedXml {
+  text: string;
+  /** For each line of `text`: the offset (into the ABAP source) of the
+   *  builder call the line renders, where the reconstruction recorded one. */
+  lineOffsets: Array<number | undefined>;
+}
+
+interface Out {
+  lines: string[];
+  offsets: Array<number | undefined>;
+}
+
+function push(out: Out, line: string, offset: number | undefined): void {
+  out.lines.push(line);
+  out.offsets.push(offset);
+}
+
+function formatNode(node: ViewNode, depth: number, out: Out): void {
   // The synthetic root the reconstruction wraps a document in.
   if (node.name === null) {
     for (const child of node.children) {
@@ -47,22 +78,20 @@ function formatNode(node: ViewNode, depth: number, out: string[]): void {
   }
   const pad = INDENT.repeat(depth);
   const name = node.ns ? `${node.ns}:${node.name}` : node.name;
-  const attrs = sortedAttrs(node.attrs).map(
-    ([n, v]) => `${n}="${escapeAttr(v)}"`
-  );
-  const oneLine = attrs.join(" ");
+  const attrs = sortedAttrs(node);
+  const oneLine = attrs.map((a) => a.text).join(" ");
   const close = node.children.length ? ">" : "/>";
 
   if (!attrs.length) {
-    out.push(`${pad}<${name}${close}`);
+    push(out, `${pad}<${name}${close}`, node.offset);
   } else if (pad.length + name.length + oneLine.length <= ONE_LINE_ATTRS) {
-    out.push(`${pad}<${name} ${oneLine}${close}`);
+    push(out, `${pad}<${name} ${oneLine}${close}`, node.offset);
   } else {
-    out.push(`${pad}<${name}`);
+    push(out, `${pad}<${name}`, node.offset);
     const attrPad = pad + INDENT.repeat(2);
     attrs.forEach((attr, ix) => {
       const last = ix === attrs.length - 1;
-      out.push(`${attrPad}${attr}${last ? close : ""}`);
+      push(out, `${attrPad}${attr.text}${last ? close : ""}`, attr.offset ?? node.offset);
     });
   }
 
@@ -70,31 +99,47 @@ function formatNode(node: ViewNode, depth: number, out: string[]): void {
     formatNode(child, depth + 1, out);
   }
   if (node.children.length) {
-    out.push(`${pad}</${name}>`);
+    push(out, `${pad}</${name}>`, node.offset);
   }
 }
 
 /**
- * One reconstructed view, indented for reading.
+ * Everything a class builds, as one XML document with the line -> source
+ * mapping. More than one view (a class assembling a popup next to its main
+ * view) is separated by a comment naming which is which.
  */
-export function prettyXml(node: ViewNode): string {
-  const out: string[] = [];
-  formatNode(node, 0, out);
-  return out.join("\n");
+export function formatDocument(
+  nodes: ViewNode[],
+  className: string
+): FormattedXml {
+  const out: Out = { lines: [], offsets: [] };
+  push(
+    out,
+    `<!-- ${className}: the view(s) reconstructed from the z2ui5_cl_ai_xml ` +
+      `builder calls - what the abap2UI5 view check validates. Read-only, ` +
+      `regenerated as the class changes. Go to Definition jumps to the ` +
+      `builder call. -->`,
+    undefined
+  );
+  nodes.forEach((node, ix) => {
+    push(out, "", undefined);
+    if (nodes.length > 1) {
+      push(out, `<!-- view ${ix + 1} of ${nodes.length} -->`, node.offset);
+    }
+    formatNode(node, 0, out);
+  });
+  push(out, "", undefined);
+  return { text: out.lines.join("\n"), lineOffsets: out.offsets };
 }
 
-/**
- * Everything a class builds, as one XML document to look at. More than one
- * view (a class assembling a popup next to its main view) is separated by a
- * comment naming which is which.
- */
+/** One reconstructed view, indented for reading. */
+export function prettyXml(node: ViewNode): string {
+  const out: Out = { lines: [], offsets: [] };
+  formatNode(node, 0, out);
+  return out.lines.join("\n");
+}
+
+/** The document as a plain string - what the tests pin down. */
 export function prettyDocument(nodes: ViewNode[], className: string): string {
-  const header =
-    `<!-- ${className}: the view(s) reconstructed from the z2ui5_cl_ai_xml ` +
-    `builder calls - what the abap2UI5 view check validates. Read-only, ` +
-    `regenerated as the class changes. -->`;
-  const views = nodes.map((node, ix) =>
-    nodes.length > 1 ? `<!-- view ${ix + 1} of ${nodes.length} -->\n${prettyXml(node)}` : prettyXml(node)
-  );
-  return [header, ...views].join("\n\n") + "\n";
+  return formatDocument(nodes, className).text;
 }

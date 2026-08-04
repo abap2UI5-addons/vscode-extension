@@ -58,6 +58,35 @@ async function buildTests() {
   );
 }
 
+/**
+ * The web extension host bundle (vscode.dev, browser-based BAS): the same
+ * sources, platform `browser`. The node builtins some modules import at load
+ * time (the linter computes a default snapshot path with fs/path/url) are
+ * aliased to shims that load fine and are never called - the web entry feeds
+ * the snapshot through `vscode.workspace.fs` instead.
+ */
+function webConfig() {
+  return {
+    entryPoints: ["src/web/extension.ts"],
+    bundle: true,
+    format: "cjs",
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: "browser",
+    outfile: "dist/web/extension.js",
+    external: ["vscode"],
+    alias: {
+      fs: "./scripts/web-shims/fs.js",
+      path: "./scripts/web-shims/path.js",
+      url: "./scripts/web-shims/url.js",
+    },
+    define: { "import.meta.url": "import_meta_url" },
+    inject: ["scripts/import-meta-url-web-shim.mjs"],
+    logLevel: "info",
+  };
+}
+
 async function main() {
   copySnapshot();
   if (tests) {
@@ -80,13 +109,17 @@ async function main() {
     ...ESM_IN_CJS,
     logLevel: "info",
   });
+  const webCtx = await esbuild.context(webConfig());
 
   if (watch) {
     await ctx.watch();
+    await webCtx.watch();
     console.log("[watch] esbuild is watching for changes...");
   } else {
     await ctx.rebuild();
+    await webCtx.rebuild();
     await ctx.dispose();
+    await webCtx.dispose();
   }
 }
 

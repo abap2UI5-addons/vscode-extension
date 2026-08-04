@@ -5,16 +5,26 @@ import {
   abapContextAt,
   abapNsMap,
   BindingContext,
+  eventNameAt,
+  eventUsagesOf,
+  OutlineNode,
+  viewOutline,
+  whenBranchOf,
+  whenNameAt,
   WriteContext,
   xmlContextAt,
   xmlNsMap,
 } from "./context";
 import {
   absoluteOffers,
+  PathKind,
   PathOffer,
   relativeOffers,
+  resolvePathKind,
   rowShapeFor,
 } from "./bindingpaths";
+import { usesBuilder } from "./abap";
+import { Snapshot } from "./metadata";
 import {
   controlsIn,
   describeControl,
@@ -25,7 +35,7 @@ import {
   valuesFor,
 } from "./metadata";
 import { snapshot } from "./snapshot";
-import { VIEW_SELECTOR } from "./quickfix";
+import { VIEW_SELECTOR } from "./selector";
 
 /*
  * Completion and hover from the bundled UI5 metadata.
@@ -246,11 +256,81 @@ class ViewCompletion implements vscode.CompletionItemProvider {
   }
 }
 
+/** What the hover says about one resolved binding path. */
+const PATH_KIND_TEXT: Record<PathKind, string> = {
+  table:
+    "a **table** in the derived model - what an aggregation (`items`, `rows`, …) " +
+    "binds. Inside its template, relative paths address one row.",
+  structure: "a **structure** in the derived model.",
+  field: "a **field** in the derived model - the binding resolves.",
+  "unknown-shape":
+    "below a structure this class does not declare (a DDIC or foreign type). " +
+    "The view check accepts any path here rather than guess.",
+  missing:
+    "**not in the derived model** - the view check reports this as " +
+    "`unknown-binding-path`, and at runtime the binding stays silently empty.",
+};
+
+/** Hover for a `{…}` path: what the derived model says about it. */
+function bindingHover(
+  doc: vscode.TextDocument,
+  position: vscode.Position,
+  data: Snapshot
+): vscode.Hover | undefined {
+  const binding = abapBindingContextAt(
+    doc.getText(),
+    doc.offsetAt(position),
+    (control, member) =>
+      membersOf(data, control).some(
+        (m) => m.name === member && m.section === "aggregations"
+      )
+  );
+  if (!binding) {
+    return undefined;
+  }
+  const range = new vscode.Range(
+    doc.positionAt(binding.start),
+    doc.positionAt(binding.end)
+  );
+  const path = doc.getText(range);
+  if (!path) {
+    return undefined;
+  }
+  const shape = modelShapeOf(doc);
+  if (!shape) {
+    return undefined;
+  }
+  let text: string;
+  if (path.startsWith("/")) {
+    text = PATH_KIND_TEXT[resolvePathKind(shape, path)];
+  } else if (binding.aggregations.length) {
+    const row = rowShapeFor(shape, binding.aggregations);
+    text = row
+      ? PATH_KIND_TEXT[resolvePathKind(row, path)] +
+        `\n\nRelative to the row of \`{${binding.aggregations[binding.aggregations.length - 1]}}\`.`
+      : "a relative path - the enclosing aggregation binds something the " +
+        "derived model cannot follow, so the row's fields are unknown here.";
+  } else {
+    text =
+      "a **relative path** - it addresses the row handed down by an " +
+      "enclosing aggregation binding, and none is in effect here.";
+  }
+  return new vscode.Hover(markdown(`\`{${path}}\` — ${text}`), range);
+}
+
 class ViewHover implements vscode.HoverProvider {
   provideHover(
     doc: vscode.TextDocument,
     position: vscode.Position
   ): vscode.Hover | undefined {
+    const isXml =
+      VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(doc.getText());
+    if (!isXml) {
+      const binding = bindingHover(doc, position, snapshot());
+      if (binding) {
+        return binding;
+      }
+    }
     const context = contextAt(doc, position);
     if (!context) {
       return undefined;
@@ -283,6 +363,90 @@ class ViewHover implements vscode.HoverProvider {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Events: definition jumps between _event( ) and the WHEN branch
+// ---------------------------------------------------------------------------
+
+/** ABAP sources only - events do not appear in raw view XML this way. */
+const ABAP_SELECTOR: vscode.DocumentSelector = [
+  { language: "abap" },
+  { pattern: "**/*.abap" },
+];
+
+class EventDefinition implements vscode.DefinitionProvider {
+  provideDefinition(
+    doc: vscode.TextDocument,
+    position: vscode.Position
+  ): vscode.Definition | vscode.LocationLink[] | undefined {
+    const text = doc.getText();
+    const offset = doc.offsetAt(position);
+
+    // From the view's _event( 'NAME' ) to the WHEN 'NAME' that handles it.
+    const event = eventNameAt(text, offset);
+    if (event) {
+      const target = whenBranchOf(text, event.name);
+      if (target === undefined) {
+        return undefined;
+      }
+      const at = doc.positionAt(target);
+      return [
+        {
+          originSelectionRange: new vscode.Range(
+            doc.positionAt(event.start),
+            doc.positionAt(event.end)
+          ),
+          targetUri: doc.uri,
+          targetRange: doc.lineAt(at.line).range,
+        },
+      ];
+    }
+
+    // And back: from WHEN 'NAME' to every _event( ) that raises it.
+    const when = whenNameAt(text, offset);
+    if (when) {
+      return eventUsagesOf(text, when.name).map((usage) => {
+        const at = doc.positionAt(usage);
+        return new vscode.Location(doc.uri, doc.lineAt(at.line).range);
+      });
+    }
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Outline: the view hierarchy as symbols
+// ---------------------------------------------------------------------------
+
+class ViewOutlineSymbols implements vscode.DocumentSymbolProvider {
+  provideDocumentSymbols(doc: vscode.TextDocument): vscode.DocumentSymbol[] {
+    const text = doc.getText();
+    if (/^\s*</.test(text) || !usesBuilder(text)) {
+      return []; // raw XML has outlines of its own; non-builder classes too
+    }
+    const clamp = (offset: number) => Math.min(offset, text.length);
+    const toSymbol = (node: OutlineNode): vscode.DocumentSymbol => {
+      const symbol = new vscode.DocumentSymbol(
+        node.label,
+        node.id ? `#${node.id}` : "",
+        node.container
+          ? vscode.SymbolKind.Object
+          : vscode.SymbolKind.Field,
+        new vscode.Range(
+          doc.positionAt(clamp(node.start)),
+          doc.positionAt(clamp(node.end + 1))
+        ),
+        new vscode.Range(
+          doc.positionAt(clamp(node.selStart)),
+          doc.positionAt(clamp(node.selEnd))
+        )
+      );
+      symbol.children = node.children.map(toSymbol);
+      return symbol;
+    };
+    return viewOutline(text).map(toSymbol);
+  }
+}
+
 export function registerLanguageFeatures(
   context: vscode.ExtensionContext,
   log: (m: string) => void
@@ -302,7 +466,17 @@ export function registerLanguageFeatures(
       "{",
       "/"
     ),
-    vscode.languages.registerHoverProvider(VIEW_SELECTOR, new ViewHover())
+    vscode.languages.registerHoverProvider(VIEW_SELECTOR, new ViewHover()),
+    vscode.languages.registerDefinitionProvider(
+      ABAP_SELECTOR,
+      new EventDefinition()
+    ),
+    // The label keeps this outline apart from the ABAP extension's own.
+    vscode.languages.registerDocumentSymbolProvider(
+      ABAP_SELECTOR,
+      new ViewOutlineSymbols(),
+      { label: "abap2UI5 view" }
+    )
   );
-  log("language: completion and hover from the bundled UI5 metadata registered");
+  log("language: completion, hover, event navigation and view outline registered");
 }

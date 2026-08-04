@@ -455,6 +455,182 @@ export function abapBindingContextAt(
   return { prefix, start, end, aggregations };
 }
 
+// ---------------------------------------------------------------------------
+// Outline: the open( )/leaf( ) hierarchy as a tree
+// ---------------------------------------------------------------------------
+
+/** One control in the view outline. */
+export interface OutlineNode {
+  /** Control name as written, prefix included (`f:Card`). */
+  label: string;
+  /** Value of the chain's `id` attribute, when it sets one. */
+  id?: string;
+  /** Full span of the control's chain (including its children). */
+  start: number;
+  end: number;
+  /** The call name itself - what selecting the symbol reveals. */
+  selStart: number;
+  selEnd: number;
+  /** True for `open( )` - a container. */
+  container: boolean;
+  children: OutlineNode[];
+}
+
+/**
+ * The view hierarchy of a class, as `z2ui5_cl_ai_xml` itself would nest it:
+ * `open` pushes a level, `shut` pops it, `leaf` never nests, `factory( )`
+ * starts a new document. A long view method reads as a tree again.
+ */
+export function viewOutline(source: string): OutlineNode[] {
+  const { calls } = scanAbap(source, source.length);
+  const roots: OutlineNode[] = [];
+  const stack: OutlineNode[] = [];
+  let current: OutlineNode | undefined; // last open/leaf, for a( ) attributes
+
+  const attach = (node: OutlineNode) => {
+    (stack.length ? stack[stack.length - 1].children : roots).push(node);
+  };
+  const closeAll = (at: number) => {
+    while (stack.length) {
+      const node = stack.pop()!;
+      node.end = Math.max(node.end, at);
+    }
+  };
+
+  for (const call of calls) {
+    const name = call.name.toLowerCase();
+    const endOf = call.close ?? call.open;
+    if (name === "factory" || name === "stringify") {
+      closeAll(endOf);
+      current = undefined;
+      continue;
+    }
+    if (name === "open" || name === "leaf") {
+      const args = argsOf(source, call);
+      const written = argLiteral(args, "n");
+      const prefix = argLiteral(args, "ns");
+      const node: OutlineNode = {
+        label: written
+          ? prefix && !written.includes(":")
+            ? `${prefix}:${written}`
+            : written
+          : "?",
+        start: call.open - call.name.length,
+        end: endOf,
+        selStart: call.open - call.name.length,
+        selEnd: call.open,
+        container: name === "open",
+        children: [],
+      };
+      attach(node);
+      current = node;
+      if (name === "open") {
+        stack.push(node);
+      }
+      continue;
+    }
+    if (name === "a") {
+      if (current) {
+        const args = argsOf(source, call);
+        if (argLiteral(args, "n")?.toLowerCase() === "id") {
+          current.id = argLiteral(args, "v") ?? current.id;
+        }
+        current.end = Math.max(current.end, endOf);
+      }
+      for (const open of stack) {
+        open.end = Math.max(open.end, endOf);
+      }
+      continue;
+    }
+    if (name === "shut") {
+      const node = stack.pop();
+      if (node) {
+        node.end = Math.max(node.end, endOf);
+      }
+      current = stack[stack.length - 1];
+    }
+  }
+  closeAll(calls.length ? Math.max(...calls.map((c) => c.close ?? c.open)) : 0);
+
+  // A parent must span its children - an unshut container ends where its
+  // last child does.
+  const widen = (node: OutlineNode): number => {
+    for (const child of node.children) {
+      node.end = Math.max(node.end, widen(child));
+    }
+    return node.end;
+  };
+  roots.forEach(widen);
+  return roots;
+}
+
+// ---------------------------------------------------------------------------
+// Events: from the view's _event( ) to the WHEN branch that handles it
+// ---------------------------------------------------------------------------
+
+/** A literal with its content span - what event navigation points at. */
+export interface NamedSpan {
+  name: string;
+  start: number;
+  end: number;
+}
+
+/** The event name the cursor sits on inside a `client->_event( … )` call
+ *  (any of its spellings: positional, `val =`, `_event_display`). */
+export function eventNameAt(
+  source: string,
+  offset: number
+): NamedSpan | undefined {
+  const { stack, literal } = scanAbap(source, offset);
+  const call = stack[stack.length - 1];
+  if (!literal || !call || !/^_event\w*$/i.test(call.name)) {
+    return undefined;
+  }
+  const name = source.slice(literal.start, literal.end);
+  return name ? { name, start: literal.start, end: literal.end } : undefined;
+}
+
+/** The event name the cursor sits on inside a `WHEN '…'` of the dispatch. */
+export function whenNameAt(
+  source: string,
+  offset: number
+): NamedSpan | undefined {
+  const { literal } = scanAbap(source, offset);
+  if (!literal) {
+    return undefined;
+  }
+  const before = source.slice(Math.max(0, literal.start - 20), literal.start);
+  if (!/\bWHEN\s*['`]$/i.test(before)) {
+    return undefined;
+  }
+  const name = source.slice(literal.start, literal.end);
+  return name ? { name, start: literal.start, end: literal.end } : undefined;
+}
+
+function escapeRe(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Where `WHEN '<name>'` handles the event - the offset of the literal. */
+export function whenBranchOf(source: string, name: string): number | undefined {
+  const m = new RegExp(`\\bWHEN\\s+(['\`])${escapeRe(name)}\\1`, "i").exec(source);
+  return m ? m.index : undefined;
+}
+
+/** Every `_event( … '<name>' … )` writing the event - the view-side ends. */
+export function eventUsagesOf(source: string, name: string): number[] {
+  const out: number[] = [];
+  const re = new RegExp(
+    `_event\\w*\\([^)]*?(['\`])${escapeRe(name)}\\1`,
+    "gi"
+  );
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source))) {
+    out.push(m.index);
+  }
+  return out;
+}
+
 /** The write position at `offset` in an ABAP source, or undefined when the
  *  cursor is not in a place the view metadata has anything to say about. */
 export function abapContextAt(

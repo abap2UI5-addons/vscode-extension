@@ -52,9 +52,21 @@ tying the extension to a system is the launch URL you configure once.
   class's model actually has**, offered inside `{…}`. See
   [Completion and hover](#completion-and-hover).
 - **Show Reconstructed XML View** – The XML the builder calls actually
-  produce, as a live, syntax-highlighted document next to the class — the
-  same reconstruction the view check validates. See
-  [Reconstructed XML](#reconstructed-xml).
+  produce, as a live, syntax-highlighted document next to the class — with
+  the findings mirrored in and **Go to Definition** back to the builder
+  call. See [Reconstructed XML](#reconstructed-xml).
+- **Navigate the view** – The `open( )`/`leaf( )` hierarchy as a tree in the
+  Outline pane, and Go to Definition between `_event( 'GO' )` and the
+  `WHEN 'GO'` that handles it — in both directions.
+- **Run without the class open** – *"Run a Recently Launched App"* lists
+  what this window has run; *"Run an App from the System"* searches all
+  class names on the system (ADT quick search) while you type.
+- **The system configures the check** – After the first launch the extension
+  reads the system's `sap-ui-version.json` and offers to align
+  `viewCheck.minUi5` / `.distribution` with what the system actually runs.
+- **Works in the browser** – vscode.dev, github.dev and browser-based SAP
+  Business Application Studio get the language half of the extension. See
+  [In the browser](#in-the-browser).
 - **The abap2UI5 MCP server for AI agents** – Copilot agent mode (and every
   other MCP client in the window) gets the abap2UI5 dev loop without an SAP
   system. See [MCP server](#mcp-server-abap2ui5mcp).
@@ -158,6 +170,10 @@ The hook is capped at 50 messages per page load, so a render loop cannot
 flood the log. In `external` mode the app runs in a real browser, which has
 its own devtools — nothing is forwarded there.
 
+When the error text names a binding path or a quoted identifier that appears
+in the running class, the log adds the file and line right under the error —
+for local files as a clickable `path:line`.
+
 ## Reloading (`abap2ui5.reloadOn`)
 
 Saving an ABAP class does not change what the server runs — only **activation**
@@ -206,6 +222,10 @@ gates instead, in the editor:
   `sap.fe`, …), so a SmartTable is fine on SAPUI5 and a guaranteed runtime
   error on OpenUI5. Set it to what your system serves; with `openui5` those
   controls become errors.
+- **The system can answer both** — after the first F9 against a system the
+  extension reads its `sap-ui-version.json` (with the credentials the proxy
+  already holds) and, when version or distribution disagree with these
+  settings, offers once per system to adopt the answer.
 - **Property gate** — bundled with the extension, zero setup, instant:
   every control and property written in the view is resolved against a UI5
   metadata snapshot. A control that does not exist at all (`sap.m.Shell2` —
@@ -315,6 +335,32 @@ class, and keeps it following the edits, refreshing shortly after each
 pause. A class assembling more than one view (a popup next to its main view)
 shows them all, labelled.
 
+The reconstruction remembers which builder call wrote each node and
+attribute, and the preview uses that both ways: the view check's findings
+are **mirrored onto the XML lines** they concern, and **Go to Definition**
+(F12, or Ctrl+click) on any line jumps to the `open( )` / `leaf( )` /
+`a( )` in the class that produced it.
+
+### Outline and event navigation
+
+The Outline pane (and the breadcrumb bar) shows the `open( )`/`leaf( )`
+hierarchy of a view-building class as a tree — labelled `abap2UI5 view`,
+next to whatever outline your ABAP extension contributes — with the `id` a
+chain sets shown alongside. Clicking a node jumps to its builder call.
+
+Go to Definition on the event name in `client->_event( 'GO' )` jumps to the
+`WHEN 'GO'` branch that handles it; on the `WHEN` literal it goes the other
+way, to every place the view raises the event.
+
+### Hover on binding paths
+
+Hovering a `{…}` path says what the derived model resolves it to: a field,
+a structure, a table (and that an aggregation binds it), a path under a
+structure the class does not declare (accepted unchecked), or **missing** —
+the same verdict the `unknown-binding-path` rule reaches, before it has to.
+Inside an aggregation template the hover also names the row the relative
+path resolves against.
+
 ## MCP server (`abap2ui5.mcp.*`)
 
 The extension offers the [abap2UI5 MCP server](https://github.com/abap2UI5/ai-mcp)
@@ -367,6 +413,7 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2UI5: Activate and Reload Preview (Ctrl+F3)` | Activates the class through your ABAP tooling, then reloads the preview |
 | `abap2UI5: Reload Preview` | Reloads the app currently shown |
 | `abap2UI5: Run a Recently Launched App` | Launches an app this window has run before, without opening its class |
+| `abap2UI5: Run an App from the System` | Searches class names on the system (ADT quick search) and launches the pick |
 | `abap2UI5: Select System` | Switches the system F9 launches against, or adds one |
 | `abap2UI5: Show the Preview in the Panel` | Moves the preview (and the running app) into the bottom panel |
 | `abap2UI5: Show the Preview in an Editor Tab` | Moves it back into an editor tab |
@@ -380,6 +427,25 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
 | `abap2UI5: Clear Stored SAP Credentials` | Removes user and password from the SecretStorage |
 | `abap2UI5: Open Project on GitHub` | Opens the abap2UI5 repository in the browser |
+
+## In the browser
+
+The extension ships a web bundle, so it also runs in the browser-based
+editors — [vscode.dev](https://vscode.dev), github.dev, and SAP Business
+Application Studio in the browser. Everything that needs no process and no
+socket works there:
+
+- completion and hover for the UI5 API and for binding paths,
+- the in-process property gate with its diagnostics, live while typing,
+- the reconstructed XML view with findings and Go to Definition,
+- the view outline and event navigation,
+- snippets and the app template.
+
+Desktop-only (their commands hide from the palette on the web): the embedded
+preview with its auth proxy, Ctrl+F3 activation and the ADT integration, the
+render gate, the workspace-wide check, quick fixes, and the MCP server.
+One knowing limit: the web check reads the VS Code settings only — a
+repository's `abap2ui5lint.jsonc` is not discovered there.
 
 ## Installation
 

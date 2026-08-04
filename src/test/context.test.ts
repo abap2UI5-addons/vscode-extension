@@ -261,3 +261,69 @@ test("a structure component bound via _bind flattens like the framework does", (
   );
   assert.deepEqual(context?.aggregations, ["/MS_DATA/ROWS"]);
 });
+
+// ---------------------------------------------------------------------------
+// Outline and events
+// ---------------------------------------------------------------------------
+
+test("the outline nests the way the builder does", () => {
+  const { viewOutline } = require("../context") as typeof import("../context");
+  const src =
+    HEAD +
+    "    )->open( n = `Page` )->a( n = `id` v = `main` )\n" +
+    "    )->leaf( n = `Text` )->a( n = `text` v = `Hi` )\n" +
+    "    )->shut(\n" +
+    "    )->leaf( n = `Button` ns = `m` ).\n";
+  const roots = viewOutline(src);
+  assert.equal(roots.length, 1);
+  const view = roots[0];
+  assert.equal(view.label, "mvc:View");
+  assert.equal(view.container, true);
+  assert.equal(view.children.length, 2); // Page, then the Button after shut
+  const page = view.children[0];
+  assert.equal(page.label, "Page");
+  assert.equal(page.id, "main");
+  assert.deepEqual(page.children.map((c: { label: string }) => c.label), ["Text"]);
+  assert.equal(view.children[1].label, "m:Button");
+  // a parent spans its children
+  assert.ok(page.end >= page.children[0].end);
+  assert.ok(view.end >= page.end);
+});
+
+test("a second factory( ) starts a second root", () => {
+  const { viewOutline } = require("../context") as typeof import("../context");
+  const src = HEAD + "    )->leaf( n = `Text` ).\n" + HEAD + "    )->leaf( n = `Input` ).\n";
+  const roots = viewOutline(src);
+  assert.equal(roots.length, 2);
+});
+
+test("event navigation finds the WHEN branch and the way back", () => {
+  const {
+    eventNameAt,
+    eventUsagesOf,
+    whenBranchOf,
+    whenNameAt,
+  } = require("../context") as typeof import("../context");
+  const src =
+    HEAD +
+    "    )->leaf( n = `Button` )->a( n = `press` v = client->_event( `GO` ) ).\n" +
+    "    CASE client->get( )-event.\n" +
+    "      WHEN `GO`.\n" +
+    "        do_something( ).\n" +
+    "    ENDCASE.\n";
+  const inEvent = src.indexOf("`GO`") + 2;
+  const ev = eventNameAt(src, inEvent);
+  assert.equal(ev?.name, "GO");
+  const target = whenBranchOf(src, "GO");
+  assert.ok(target !== undefined && target > src.indexOf("CASE"));
+  const inWhen = src.indexOf("WHEN `GO`") + 7;
+  const back = whenNameAt(src, inWhen);
+  assert.equal(back?.name, "GO");
+  assert.equal(eventUsagesOf(src, "GO").length, 1);
+});
+
+test("a literal outside an _event call is not an event", () => {
+  const { eventNameAt } = require("../context") as typeof import("../context");
+  const src = HEAD + "    )->leaf( n = `Text` )->a( n = `text` v = `GO` ).";
+  assert.equal(eventNameAt(src, src.lastIndexOf("`GO`") + 2), undefined);
+});

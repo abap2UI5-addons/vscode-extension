@@ -63,3 +63,20 @@ export function classDefinitionOffset(source: string): number {
   const match = CLASS_DEF_RE.exec(source);
   return match?.index ?? 0;
 }
+
+/**
+ * Tokens in a runtime error message worth looking up in the class: binding
+ * paths (`/MT_TRAVELS/STATUS`) and quoted names - the pieces UI5 error texts
+ * carry that also appear verbatim in the source. Longest first, so the most
+ * specific token is tried before its fragments; de-duplicated.
+ */
+export function errorTokens(message: string): string[] {
+  const out = new Set<string>();
+  for (const m of message.matchAll(/\/[A-Z0-9_]{2,}(?:\/[A-Z0-9_]+)*/g)) {
+    out.add(m[0]);
+  }
+  for (const m of message.matchAll(/['"]([^'"\n]{3,60})['"]/g)) {
+    out.add(m[1]);
+  }
+  return [...out].sort((a, b) => b.length - a.length);
+}

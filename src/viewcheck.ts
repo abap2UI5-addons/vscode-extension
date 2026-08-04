@@ -3,20 +3,12 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { spawn } from "child_process";
-import { checkAbapRules } from "@abap2ui5/linter/abap-rules";
-import { prepareAbap } from "@abap2ui5/linter/reconstruct";
-import { checkNodes, parseXml, PropertyFinding } from "@abap2ui5/linter/properties";
-import {
-  annotate,
-  applyDirectives,
-  applyRules,
-  describe,
-  RULES,
-  severityOf,
-} from "@abap2ui5/linter/findings";
+import { PropertyFinding } from "@abap2ui5/linter/properties";
 import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
-import { snapshot, snapshotError, snapshotUi5Version } from "./snapshot";
+import { snapshotError, snapshotUi5Version } from "./snapshot";
 import { usesBuilder } from "./abap";
+import { runGate, VIEW_XML_RE } from "./gate";
+import { toDiagnostics } from "./diagnostics";
 import {
   CheckOptions,
   clearConfigCache,
@@ -42,13 +34,6 @@ import {
  */
 
 const CONFIG_SECTION = "abap2ui5";
-const DIAG_SOURCE = "abap2UI5-linter";
-
-/** The published rule reference - one anchor per rule id, which is what makes
- *  every diagnostic's code clickable. */
-const RULES_PAGE = "https://abap2ui5.github.io/linter/";
-
-const VIEW_XML_RE = /\.(view|fragment)\.xml$/i;
 
 /** How long to wait after the last keystroke before checking. Long enough
  *  that typing a control name does not flash three different errors, short
@@ -123,110 +108,6 @@ function optionsFor(doc: vscode.TextDocument): CheckOptions {
     distribution: cfg.get<string>("viewCheck.distribution", "sapui5"),
     allow: cfg.get<string[]>("viewCheck.allow", []),
   });
-}
-
-// ---------------------------------------------------------------------------
-// Findings -> diagnostics
-// ---------------------------------------------------------------------------
-
-/** What to underline: the member name, the control's local name, or - for
- *  the findings that are about a value rather than a member - that value. */
-function needleOf(f: PropertyFinding): string {
-  if (f.type === "unknown-binding-path" || f.type === "event-without-handler") {
-    return String(f.value ?? "").replace(/^\//, "");
-  }
-  return f.member || (f.control ?? "").split(".").pop() || "";
-}
-
-/** The linter records where each finding came from, so the diagnostic goes
- *  exactly there: the recorded line, and on it the first occurrence of the
- *  name at or after the recorded column - the a( ) call carries the name a
- *  few characters further right than the token the gate matched. Findings
- *  the linter could not place (a view part inlined from a helper method)
- *  keep the old best-effort search: the first textual match in the file. */
-function findingRange(doc: vscode.TextDocument, f: PropertyFinding): vscode.Range {
-  const needle = needleOf(f);
-  if (typeof f.line === "number" && f.line >= 1 && f.line <= doc.lineCount) {
-    const lineNo = f.line - 1;
-    const line = doc.lineAt(lineNo);
-    const col = Math.max(0, Math.min((f.column ?? 1) - 1, line.text.length));
-    const ix = needle ? line.text.indexOf(needle, col) : -1;
-    if (ix >= 0) {
-      return new vscode.Range(lineNo, ix, lineNo, ix + needle.length);
-    }
-    return new vscode.Range(new vscode.Position(lineNo, col), line.range.end);
-  }
-  if (needle) {
-    const text = doc.getText();
-    const ix = text.search(
-      new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`)
-    );
-    if (ix >= 0) {
-      const start = doc.positionAt(ix);
-      return new vscode.Range(start, doc.positionAt(ix + needle.length));
-    }
-  }
-  return doc.lineAt(0).range;
-}
-
-/* The linter owns the severity of every finding type and the wording that
- * goes with it (@abap2ui5/linter/findings) - both used to be kept a second
- * time here, which is how the two drifted apart. `hint` becomes
- * Information rather than DiagnosticSeverity.Hint: Hint diagnostics stay
- * out of the Problems panel, and a finding nobody can see is not a hint. */
-const DIAGNOSTIC_SEVERITY = {
-  error: vscode.DiagnosticSeverity.Error,
-  warning: vscode.DiagnosticSeverity.Warning,
-  hint: vscode.DiagnosticSeverity.Information,
-} as const;
-
-/** The rules whose subject really is a deprecation - VS Code strikes the
- *  underlined text through for them, which says it better than any wording. */
-const DEPRECATION_RULES = new Set(["control-deprecated", "member-deprecated"]);
-
-/** The diagnostic code: the rule id, linked to its section on the published
- *  rule reference. Ctrl+click in the Problems panel then explains what the
- *  rule means and what the fix looks like - the paragraph that never fits in
- *  a one-line message. */
-function diagnosticCode(
-  type: string
-): string | { value: string; target: vscode.Uri } {
-  if (!RULES.includes(type)) {
-    return type;
-  }
-  return { value: type, target: vscode.Uri.parse(`${RULES_PAGE}#${type}`) };
-}
-
-function toDiagnostics(
-  doc: vscode.TextDocument,
-  findings: PropertyFinding[],
-  renderErrors: string[]
-): vscode.Diagnostic[] {
-  const diagnostics: vscode.Diagnostic[] = [];
-  for (const f of findings) {
-    const d = new vscode.Diagnostic(
-      findingRange(doc, f),
-      f.message ?? describe(f),
-      DIAGNOSTIC_SEVERITY[f.severity ?? severityOf(f)]
-    );
-    d.source = DIAG_SOURCE;
-    d.code = diagnosticCode(f.type);
-    if (DEPRECATION_RULES.has(f.type)) {
-      d.tags = [vscode.DiagnosticTag.Deprecated];
-    }
-    diagnostics.push(d);
-  }
-  for (const e of renderErrors) {
-    const d = new vscode.Diagnostic(
-      doc.lineAt(0).range,
-      `render: ${e.slice(0, 300)}`,
-      vscode.DiagnosticSeverity.Error
-    );
-    d.source = DIAG_SOURCE;
-    d.code = "render-error";
-    diagnostics.push(d);
-  }
-  return diagnostics;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,95 +277,6 @@ function runRenderGate(
       }
     });
   });
-}
-
-// ---------------------------------------------------------------------------
-// The property gate itself - in-process, no I/O, safe to run on a keystroke
-// ---------------------------------------------------------------------------
-
-interface GateResult {
-  findings: PropertyFinding[];
-  /** True when the source is one the render gate could load as a whole. */
-  renderable: boolean;
-  /** Set when nothing was validated - the caller must not claim a pass. */
-  nothingChecked?: string;
-  helperNote: string;
-}
-
-/**
- * Runs every in-process rule over one source and returns the surviving
- * findings: after the repo config's `rules` block (severity overrides and
- * switch-offs) and after the source's own `abap2ui5lint-disable…` directives.
- * Both of those are what the CLI and the GitHub Action apply, and leaving
- * them out here is what used to make a waived line squiggle in the editor
- * anyway.
- */
-function runGate(
-  text: string,
-  fileName: string,
-  isXml: boolean,
-  options: CheckOptions
-): GateResult {
-  const { minUi5, distribution, allow } = options;
-  const data = snapshot();
-  let findings: PropertyFinding[] = [];
-  let renderable = true;
-  let helperNote = "";
-
-  if (isXml) {
-    findings.push(
-      ...checkNodes(parseXml(text), { data, minUi5, allow, distribution })
-    );
-  } else {
-    const prep = prepareAbap(text);
-    if (!prep.usesBuilder) {
-      return {
-        findings: [],
-        renderable: false,
-        helperNote: "",
-        nothingChecked: "no z2ui5_cl_ai_xml=>factory call found",
-      };
-    }
-    if (prep.nodes.length === 0) {
-      // usesBuilder matched, but nothing was reconstructable - saying
-      // "passed" here would claim a validation that never happened
-      return {
-        findings: [],
-        renderable: false,
-        helperNote: "",
-        nothingChecked: "builder call found but no view could be reconstructed",
-      };
-    }
-    for (const node of prep.nodes) {
-      // the model derived from the class is what makes the binding-path
-      // rules possible - a path nothing in the model has stays silently
-      // empty at runtime, and without passing it those rules never run
-      findings.push(
-        ...checkNodes(node, {
-          data,
-          minUi5,
-          allow,
-          distribution,
-          model: prep.model,
-          shape: prep.modelShape,
-        })
-      );
-    }
-    // rules that need the class itself, not just the view tree
-    findings.push(...checkAbapRules(text));
-    renderable = prep.docs.length > 0 && prep.helperTokens === 0;
-    if (prep.helperTokens > 0) {
-      helperNote = " (render gate skipped - view built in helper methods)";
-    }
-  }
-
-  // severity, wording and the line/column behind each recorded offset - the
-  // directives are keyed by line, so this has to happen before they are
-  // applied
-  annotate(findings, text);
-  findings = applyRules(findings, options.rules, fileName);
-  findings = applyDirectives(findings, text);
-  return { findings, renderable, helperNote };
 }
 
 /**

@@ -80,6 +80,45 @@ export function relativeOffers(row: unknown): PathOffer[] {
   return out;
 }
 
+/** What a written path resolves to in the shape - the hover's answer. */
+export type PathKind =
+  | "table"
+  | "structure"
+  | "field"
+  /** Below a structure the class does not declare - accepted unchecked. */
+  | "unknown-shape"
+  /** Not in the derived model at all - the gate reports this. */
+  | "missing";
+
+/**
+ * Resolves one written path the way the gate does: segment by segment,
+ * entering a table through its row, giving up the moment an undeclared
+ * shape is entered (below it, everything is accepted unchecked).
+ */
+export function resolvePathKind(root: unknown, path: string): PathKind {
+  let current: unknown = root;
+  for (const segment of path.split("/").filter(Boolean)) {
+    current = rowOf(current);
+    if (current === null || typeof current !== "object") {
+      return "missing";
+    }
+    if (isUnknown(current)) {
+      return "unknown-shape";
+    }
+    if (!(segment in (current as Record<string, unknown>))) {
+      return "missing";
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  if (Array.isArray(current)) {
+    return "table";
+  }
+  if (current !== null && typeof current === "object") {
+    return isUnknown(current) ? "unknown-shape" : "structure";
+  }
+  return "field";
+}
+
 /**
  * The row shape the innermost enclosing aggregation binding hands down.
  *

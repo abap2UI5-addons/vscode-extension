@@ -43,3 +43,15 @@ test("without a definition the file name is used", () => {
   assert.equal(classNameOf("* nothing here", "/tmp/zcl_fallback.clas.abap"), "ZCL_FALLBACK");
   assert.equal(classNameOf("", "zcl_plain.abap"), "ZCL_PLAIN");
 });
+
+test("errorTokens pulls paths and quoted names out of an error text", () => {
+  const { errorTokens } = require("../abap") as typeof import("../abap");
+  const tokens = errorTokens(
+    `Failed to load "sap/m/Tabel" - binding /MT_TRAVELS/STATUS resolved to undefined`
+  );
+  assert.ok(tokens.includes("/MT_TRAVELS/STATUS"));
+  assert.ok(tokens.includes("sap/m/Tabel"));
+  // longest first, so the specific token wins the lookup
+  assert.equal(tokens[0].length >= tokens[tokens.length - 1].length, true);
+  assert.deepEqual(errorTokens("nothing to see"), []);
+});
