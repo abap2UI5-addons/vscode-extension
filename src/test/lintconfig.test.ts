@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { clearConfigCache, describeOptions, resolveOptions } from "../lintconfig";
+import {
+  applyBaselineTo,
+  clearConfigCache,
+  describeOptions,
+  resolveOptions,
+} from "../lintconfig";
+import type { PropertyFinding } from "@abap2ui5/linter/properties";
 
 const SETTINGS = { minUi5: "1.71", distribution: "sapui5", allow: ["sap.m.X.y"] };
 
@@ -56,6 +62,68 @@ test("the config is discovered from a subdirectory upward", () => {
   const nested = path.join(dir, "src", "z2ui5");
   fs.mkdirSync(nested, { recursive: true });
   assert.equal(resolveOptions(nested, SETTINGS).minUi5, "1.108");
+});
+
+test("a baseline path resolves against the config file, like the CLI", () => {
+  const dir = workspace('{ "baseline": "lint/baseline.json" }');
+  const options = resolveOptions(dir, SETTINGS);
+  assert.equal(options.baseline, path.join(dir, "lint", "baseline.json"));
+});
+
+test("baselined findings are dropped, new ones stay", () => {
+  const dir = workspace();
+  const source = path.join(dir, "zcl_app.clas.abap");
+  fs.writeFileSync(
+    path.join(dir, "baseline.json"),
+    JSON.stringify({
+      findings: { "zcl_app.clas.abap|unknown-control|sap.m.Buton||": 1 },
+    })
+  );
+  const findings: PropertyFinding[] = [
+    { type: "unknown-control", control: "sap.m.Buton" },
+    { type: "unknown-control", control: "sap.m.Inptu" },
+  ];
+  const suppressed = applyBaselineTo(
+    findings,
+    path.join(dir, "baseline.json"),
+    source
+  );
+  assert.equal(suppressed, 1);
+  assert.deepEqual(
+    findings.map((f) => f.control),
+    ["sap.m.Inptu"]
+  );
+});
+
+test("one check must not eat the baseline budget of the next", () => {
+  const dir = workspace();
+  const source = path.join(dir, "zcl_app.clas.abap");
+  const baseline = path.join(dir, "baseline.json");
+  fs.writeFileSync(
+    baseline,
+    JSON.stringify({
+      findings: { "zcl_app.clas.abap|unknown-control|sap.m.Buton||": 1 },
+    })
+  );
+  const finding = (): PropertyFinding[] => [
+    { type: "unknown-control", control: "sap.m.Buton" },
+  ];
+  // the same keystroke-check runs over and over - the cached map is copied,
+  // so the count covers the finding on EVERY run, not only the first
+  assert.equal(applyBaselineTo(finding(), baseline, source), 1);
+  assert.equal(applyBaselineTo(finding(), baseline, source), 1);
+});
+
+test("an unreadable baseline suppresses nothing", () => {
+  const dir = workspace();
+  const source = path.join(dir, "zcl_app.clas.abap");
+  const baseline = path.join(dir, "baseline.json");
+  fs.writeFileSync(baseline, "not json");
+  const findings: PropertyFinding[] = [
+    { type: "unknown-control", control: "sap.m.Buton" },
+  ];
+  assert.equal(applyBaselineTo(findings, baseline, source), 0);
+  assert.equal(findings.length, 1);
 });
 
 test("a broken config is reported, not silently ignored", () => {

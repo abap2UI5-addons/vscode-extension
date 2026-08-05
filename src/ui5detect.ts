@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { SapProxy } from "./proxy";
+import { snapshotUi5Version } from "./snapshot";
 
 /*
  * "Which UI5 does this system actually run?" - answered by the system.
@@ -118,6 +119,25 @@ export async function suggestSystemUi5(
       (info.distribution ? ` (${info.distribution})` : "")
   );
   showStatus(context, origin, info);
+
+  // The bundled metadata can only describe what existed when it was built -
+  // against a NEWER system, a genuinely new control would be reported as
+  // unknown. Said once in the log, not as a popup: it is a caveat, not an
+  // error, and the fix (an extension update) is not urgent.
+  const snapMinor = /^(\d+)\.(\d+)/.exec(snapshotUi5Version() ?? "");
+  const sysMinor = /^(\d+)\.(\d+)/.exec(info.minor);
+  if (
+    snapMinor &&
+    sysMinor &&
+    (Number(sysMinor[1]) > Number(snapMinor[1]) ||
+      (sysMinor[1] === snapMinor[1] && Number(sysMinor[2]) > Number(snapMinor[2])))
+  ) {
+    log(
+      `ui5-detect: the system's UI5 ${info.minor} is newer than the bundled ` +
+        `metadata (${snapMinor[0]}) - controls introduced in between would be ` +
+        "reported as unknown; update the extension for current metadata"
+    );
+  }
 
   const cfg = vscode.workspace.getConfiguration("abap2ui5");
   const setMin = cfg.get<string>("viewCheck.minUi5", "1.71");

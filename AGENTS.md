@@ -42,9 +42,13 @@ find a German string anywhere, it is a leftover — translate it.
 | `src/proxy.ts` | Local reverse proxy that injects basic auth so the embedded iframe avoids a 401 |
 | `src/systems.ts` | Named launch profiles, the active-system state, credentials per host |
 | `src/viewcheck.ts` | Static view checks via abap2UI5-linter: live + on-save + on-demand + workspace, findings as diagnostics |
-| `src/lintconfig.ts` | Discovers and merges the repo's `abap2ui5lint.jsonc` with the VS Code settings |
-| `src/quickfix.ts` | Code actions: the linter's own fixes, "fix all", and the disable-directive waiver |
-| `src/language.ts` | Completion and hover, wired from `context.ts` + `metadata.ts` + `bindingpaths.ts` |
+| `src/lintconfig.ts` | Discovers and merges the repo's `abap2ui5lint.jsonc` with the VS Code settings; applies its `baseline` file (mtime-cached) |
+| `src/quickfix.ts` | Code actions: the linter's own fixes, "fix all", the disable-directive waiver, and "add to baseline" |
+| `src/language.ts` | Completion and hover, wired from `context.ts` + `metadata.ts` + `bindingpaths.ts` + `clientapi.ts`; the chain formatter and method navigation |
+| `src/clientapi.ts` | The bundled `z2ui5_if_client` method reference (signatures + docs) behind the `client->` hover and completion |
+| `src/chainformat.ts` | Format Document for builder chains: per-line indents from the chain's own nesting |
+| `src/renderloc.ts` | Places a render-gate error message on the source line quoting its token |
+| `scripts/generate-client-api.mjs` | Regenerates `src/data/client-api.json` from `z2ui5_if_client.intf.abap` (local checkout or GitHub raw) |
 | `src/bindingpaths.ts` | Binding-path offers from the model shape the linter derives (`prepareAbap( ).modelShape`) |
 | `src/xmlpreview.ts` | "Show Reconstructed XML View": virtual document + live refresh |
 | `src/xmlformat.ts` | Pretty-printer for the reconstructed view trees (`prepareAbap( ).nodes`) |
@@ -64,6 +68,7 @@ not committed.
 **The `vscode`-free boundary is load-bearing.** `abap.ts`, `urls.ts`,
 `context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts`,
 `bindingpaths.ts`, `xmlformat.ts`, `gate.ts`, `template.ts`, `inspect.ts`,
+`clientapi.ts`, `chainformat.ts`, `renderloc.ts`,
 `proxy.ts` and `webview.ts` (HTML strings only — the state it renders is
 passed in) must not import `vscode`: the test suite bundles them for plain
 Node, and an accidental import turns a unit test into a module-not-found

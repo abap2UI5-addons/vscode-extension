@@ -54,8 +54,12 @@ tying the extension to a system is the launch URL you configure once.
 - **Completion and hover for the whole UI5 API** – Control names, the members
   of exactly that control, and the values an enum property accepts — from the
   metadata snapshot the extension already ships. Plus the **binding paths the
-  class's model actually has**, offered inside `{…}`. See
+  class's model actually has**, offered inside `{…}`, and the
+  **`client->` API** with signature and documentation on hover. See
   [Completion and hover](#completion-and-hover).
+- **Format Document repairs a builder chain** – The indentation follows the
+  view hierarchy the chain builds; only builder-verb lines are touched. See
+  [Format Document](#format-document).
 - **Show Reconstructed XML View** – The XML the builder calls actually
   produce, as a live, syntax-highlighted document next to the class — with
   the findings mirrored in and **Go to Definition** back to the builder
@@ -75,8 +79,11 @@ tying the extension to a system is the launch URL you configure once.
 - **The abap2UI5 MCP server for AI agents** – Copilot agent mode (and every
   other MCP client in the window) gets the abap2UI5 dev loop without an SAP
   system. See [MCP server](#mcp-server-abap2ui5mcp).
-- **Snippets** for ABAP files: `z2ui5app`, `z2ui5open`, `z2ui5leaf`,
-  `z2ui5button`, `z2ui5input`, `z2ui5table`, `z2ui5event`, `z2ui5disable`.
+- **Snippets** for ABAP files: `z2ui5app`, `z2ui5main`, `z2ui5open`,
+  `z2ui5leaf`, `z2ui5button`, `z2ui5input`, `z2ui5table`, `z2ui5event`,
+  `z2ui5popup`, `z2ui5popover`, `z2ui5toast`, `z2ui5msgbox`, `z2ui5navto`,
+  `z2ui5navback`, `z2ui5modelupdate`, `z2ui5eventarg`, `z2ui5bindedit`,
+  `z2ui5disable`.
 - **Insert an app template** – Class skeleton for a new abap2UI5 app.
 
 All commands are available from the Command Palette (`Ctrl/Cmd + Shift + P`).
@@ -311,6 +318,11 @@ The CLI and the GitHub Action honour the same directive, so waiving something
 here waives it in CI as well — and a line waived in CI no longer squiggles
 here.
 
+When the repo config names a **baseline** (see below), a third quick fix
+appears: **add to baseline** appends the finding under the cursor to that
+file — the same line-free key the CLI's `--update-baseline` writes — and the
+squiggle disappears immediately.
+
 ### `abap2ui5lint.jsonc`
 
 A repository can pin its UI5 floor, its distribution, its `allow` list and its
@@ -321,6 +333,13 @@ settings** wherever it says something; the settings fill in the rest, and the
 two `allow` lists merge. The **abap2UI5** output channel names the file the
 current values came from — the first place to look when the editor and CI
 disagree.
+
+Editing the config file itself is guarded too: the linter's schema ships with
+the extension, so an unknown key or a misspelled rule id squiggles right in
+`abap2ui5lint.jsonc`, offline. And a repository adopting the linter over
+existing findings can name a `baseline` file in the config: the editor then
+drops exactly the findings CI drops (the output channel says how many), so
+the Problems panel shows only what is *new*.
 
 ### Completion and hover
 
@@ -349,8 +368,24 @@ through nested aggregations too), absolute paths after. Structures the class
 does not declare (DDIC types) are offered as themselves and never guessed
 into; named models and expression bindings are left alone.
 
+**The client API completes and explains itself**: `client->` offers every
+`z2ui5_if_client` method (triggered by the `>` of the arrow), and hovering a
+call shows the full ABAP signature and documentation — parsed from the
+interface source and bundled, so `popover_display( xml = … by_id = … )` is
+offered correctly instead of corrected afterwards.
+
 No SAP system, no network and no setup is involved — it is the same data the
 check already uses.
+
+### Format Document
+
+The builder chain IS the view hierarchy, so its indentation is structure,
+not taste. **Format Document** (Shift+Alt+F) repairs it: a child one step
+under its parent, an attribute one step under its element, a `shut( )` on
+the level of the `open( )` it closes — the canonical corpus style.
+Deliberately conservative: only lines beginning with a builder verb inside a
+chain are touched; comments, multi-line values and everything outside a
+chain keep their bytes.
 
 ### Reconstructed XML
 
@@ -386,7 +421,10 @@ the view raises says *raised n× in the view* and peeks the calls — and
 **F2** renames an event everywhere at once, raises and handler together.
 
 Go to Definition works on binding paths too: `{/MT_TRAVELS/STATUS}` lands on
-the `TYPES` field (or the `DATA` line for a root path) that declares it.
+the `TYPES` field (or the `DATA` line for a root path) that declares it. And
+on a plain **method call** it jumps to the `METHOD` implementation in the
+class — with the workspace symbol search (`Ctrl+T`) finding method
+implementations across every `*.abap` file, capped at 500 files.
 
 ### Hover on binding paths
 
