@@ -29,10 +29,28 @@ function copySnapshot() {
   );
 }
 
+/** The linter commit this build pins (package-lock.json resolved URL) -
+ *  injected into the desktop bundle so the render gate can prefer the
+ *  per-commit bundle release matching exactly this pin (see rendergate.ts). */
+function linterPin() {
+  try {
+    const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+    const resolved =
+      lock.packages?.["node_modules/@abap2ui5/linter"]?.resolved || "";
+    const m = /#([0-9a-f]{40})$/.exec(resolved);
+    return m ? m[1] : "";
+  } catch {
+    return "";
+  }
+}
+
 /* Shared with the test build: the linter's ESM modules use import.meta.url,
  * which does not exist in a CJS bundle. */
 const ESM_IN_CJS = {
-  define: { "import.meta.url": "import_meta_url" },
+  define: {
+    "import.meta.url": "import_meta_url",
+    "process.env.LINTER_PIN": JSON.stringify(linterPin()),
+  },
   inject: ["scripts/import-meta-url-shim.mjs"],
 };
 

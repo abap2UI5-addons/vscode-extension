@@ -5,6 +5,7 @@ import * as path from "path";
 import { spawn } from "child_process";
 import { PropertyFinding } from "@abap2ui5/linter/properties";
 import { installRenderGate, renderGateBrowsers, renderGateCli } from "./rendergate";
+import { VIEW_CHECK_DIRS } from "./repolayout";
 import { snapshotError, snapshotUi5Version } from "./snapshot";
 import { usesBuilder } from "./abap";
 import { runGate, VIEW_XML_RE } from "./gate";
@@ -154,9 +155,7 @@ function checkerCommand(): CheckerCommand {
   }
   const root = config().get<string>("mcp.reposRoot", "").trim();
   if (root) {
-    // `linter` is the checker's own repository name; the two after it are what
-    // a clone made under its earlier names is called (see ai-mcp lib/repos.mjs)
-    for (const dir of ["linter", "abap2UI5-linter", "ai-view-check"]) {
+    for (const dir of VIEW_CHECK_DIRS) {
       const cli = path.join(root, dir, "cli.mjs");
       if (fs.existsSync(cli)) {
         return { cmd: "node", args: [cli], env: {}, installed: true };
