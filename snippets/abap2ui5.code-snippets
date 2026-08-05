@@ -74,13 +74,14 @@
       "    )->open( n = `Column`",
       "    )->leaf( n = `Text`",
       "    )->a( n = `text` v = `${2:Column}`",
-      "    )->shut( )->shut( )",
+      "    )->shut( )->shut(",
       "    )->open( n = `items`",
       "    )->open( n = `ColumnListItem`",
       "    )->open( n = `cells`",
       "    )->leaf( n = `Text`",
       "    )->a( n = `text` v = `{${3:FIELD}}`",
-      "    )->shut( )->shut( )->shut( )$0"
+      "    )->shut( )->shut( )->shut(",
+      "    )$0"
     ]
   },
   "abap2UI5 Event Handler": {
@@ -128,7 +129,7 @@
       "    )->open( n = `content`",
       "    )->leaf( n = `Text`",
       "    )->a( n = `text` v = `${2:Popup content}`",
-      "    )->shut( )",
+      "    )->shut(",
       "    )->open( n = `buttons`",
       "    )->leaf( n = `Button`",
       "    )->a( n = `text`  v = `Close`",

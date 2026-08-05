@@ -41,6 +41,12 @@
   `z2ui5_if_app` class in the workspace and each `nav_app_call( )` between
   them as a clickable graph — apps nothing navigates to on the left,
   unresolved targets dashed. Click a node, land in the class.
+- **Fixed: the `z2ui5table` and `z2ui5popup` snippets' chains were
+  unbalanced.** Their mid-chain `)->shut( )` segments closed one
+  parenthesis too many - the linter's reconstruction scan tolerated it, a
+  real system would not have. A mid-chain shut now stays open for the next
+  line's `)` (the corpus style), and a new test pins the paren balance of
+  every shipped snippet and template so it cannot regress.
 - **The abap2UI5 System MCP server.** ai-mcp stays the system-less
   sandbox; the extension now also offers real-system tools it alone can
   provide (configured systems, stored credentials, auth proxy):

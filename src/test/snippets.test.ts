@@ -149,6 +149,52 @@ test("the wizard renames the class everywhere", () => {
   }
 });
 
+/** Paren balance with ABAP literals (`…`, '…'), templates (|…|) and
+ *  line comments (") blanked - chain style demands a net of zero. */
+function parenBalance(source: string): number {
+  let depth = 0;
+  for (const line of source.split("\n")) {
+    let i = 0;
+    while (i < line.length) {
+      const c = line[i];
+      if (c === "`" || c === "'" || c === "|") {
+        const close = line.indexOf(c, i + 1);
+        i = close < 0 ? line.length : close + 1;
+        continue;
+      }
+      if (c === '"') {
+        break; // comment to end of line
+      }
+      if (c === "(") {
+        depth++;
+      } else if (c === ")") {
+        depth--;
+      }
+      i++;
+    }
+  }
+  return depth;
+}
+
+test("every shipped chain balances its parentheses", () => {
+  // The linter's reconstruction scan tolerates an unbalanced chain - real
+  // ABAP does not. z2ui5table shipped one for a while; this pins it down.
+  for (const snippet of loadSnippets()) {
+    assert.equal(
+      parenBalance(wrap(expand(snippet.body))),
+      0,
+      `snippet ${snippet.prefix} has unbalanced parentheses`
+    );
+  }
+  for (const template of APP_TEMPLATES) {
+    assert.equal(
+      parenBalance(template.source),
+      0,
+      `template "${template.label}" has unbalanced parentheses`
+    );
+  }
+});
+
 test("no shipped ABAP calls a method the interface marks obsolete", () => {
   // the linter catches _bind_edit specifically; this catches the whole
   // class of mistake - any client-> call whose abapdoc says obsolete
