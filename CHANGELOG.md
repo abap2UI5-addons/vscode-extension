@@ -38,8 +38,8 @@
   offline.
 - **New snippets.** `z2ui5main` (lifecycle dispatch), `z2ui5popup`,
   `z2ui5popover`, `z2ui5toast`, `z2ui5msgbox`, `z2ui5navto`, `z2ui5navback`,
-  `z2ui5modelupdate`, `z2ui5eventarg`, `z2ui5bindedit` - and `z2ui5input`
-  now binds with `_bind_edit`, which is what two-way means.
+  `z2ui5modelupdate`, `z2ui5eventarg` - every signature checked against the
+  bundled client API.
 - **Warned when the system outruns the metadata.** When the detected system
   UI5 is newer than the bundled snapshot, the output channel says so - a
   genuinely new control would be reported as unknown, and now the caveat is

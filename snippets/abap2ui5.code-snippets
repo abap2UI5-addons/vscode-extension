@@ -60,14 +60,9 @@
     "description": "Input bound two-way to a class attribute",
     "body": [
       "leaf( n = `Input`",
-      "    )->a( n = `value` v = client->_bind_edit( ${1:mv_value} )",
+      "    )->a( n = `value` v = client->_bind( ${1:mv_value} )",
       "    )$0"
     ]
-  },
-  "abap2UI5 Editable Binding": {
-    "prefix": "z2ui5bindedit",
-    "description": "Two-way binding of a class attribute (view can change it)",
-    "body": ["a( n = `${1:value}` v = client->_bind_edit( ${2:mv_value} ) )$0"]
   },
   "abap2UI5 Table": {
     "prefix": "z2ui5table",

@@ -82,8 +82,7 @@ tying the extension to a system is the launch URL you configure once.
 - **Snippets** for ABAP files: `z2ui5app`, `z2ui5main`, `z2ui5open`,
   `z2ui5leaf`, `z2ui5button`, `z2ui5input`, `z2ui5table`, `z2ui5event`,
   `z2ui5popup`, `z2ui5popover`, `z2ui5toast`, `z2ui5msgbox`, `z2ui5navto`,
-  `z2ui5navback`, `z2ui5modelupdate`, `z2ui5eventarg`, `z2ui5bindedit`,
-  `z2ui5disable`.
+  `z2ui5navback`, `z2ui5modelupdate`, `z2ui5eventarg`, `z2ui5disable`.
 - **Insert an app template** – Class skeleton for a new abap2UI5 app.
 
 All commands are available from the Command Palette (`Ctrl/Cmd + Shift + P`).
