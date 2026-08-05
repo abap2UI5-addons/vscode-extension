@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { VIEW_CHECK_DIRS } from "./repolayout";
 
 /*
  * MCP server registration: exposes the abap2UI5 MCP server
@@ -19,15 +20,11 @@ const CONFIG_SECTION = "abap2ui5";
 const PROVIDER_ID = "abap2ui5.mcp";
 
 /** Repo-name -> env var the server resolves it with (see ai-mcp lib/repos.mjs,
- *  whose VIEW_CHECK_DIRS this mirrors). `linter` is the checker's own
- *  repository name; the two after it are what a clone made under its earlier
- *  names is called. */
+ *  whose VIEW_CHECK_DIRS this mirrors via src/repolayout.ts). */
 const HOME_VARS: ReadonlyArray<readonly [string, string]> = [
   ["abap2UI5", "A2UI5_HOME"],
   ["ai-demokit", "AI_DEMOKIT_HOME"],
-  ["linter", "AI_VIEW_CHECK_HOME"],
-  ["abap2UI5-linter", "AI_VIEW_CHECK_HOME"],
-  ["ai-view-check", "AI_VIEW_CHECK_HOME"],
+  ...VIEW_CHECK_DIRS.map((d) => [d, "AI_VIEW_CHECK_HOME"] as const),
 ];
 
 function config() {

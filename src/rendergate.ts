@@ -8,15 +8,27 @@ import * as tar from "tar";
 
 /*
  * Self-installing render gate: downloads the self-contained checker bundle
- * (CLI + OpenUI5 runtime + playwright, published as a rolling release by abap2UI5-linter's CI
+ * (CLI + OpenUI5 runtime + playwright, published by abap2UI5-linter's CI)
  * into the extension's global storage and fetches
  * Chromium through playwright's own CLI - everything runs with VS Code's
  * bundled Node.js, so no node, npm or PATH setup is required on the
  * machine.
+ *
+ * Bundle selection: the linter CI publishes every bundle twice - under a
+ * rolling tag and under an immutable per-commit tag. This build prefers the
+ * bundle of exactly the linter commit it pins (LINTER_PIN, injected by
+ * esbuild from the lockfile), so what the render gate executes matches what
+ * this release was tested with; the rolling tag is the fallback when no
+ * per-commit bundle exists for the pin.
  */
 
-const BUNDLE_URL =
+const ROLLING_BUNDLE_URL =
   "https://github.com/abap2UI5/linter/releases/download/render-gate-bundle/view-check-bundle.tgz";
+// injected at build time by esbuild.js (define) from package-lock.json
+const LINTER_PIN = process.env.LINTER_PIN || "";
+const PINNED_BUNDLE_URL = LINTER_PIN
+  ? `https://github.com/abap2UI5/linter/releases/download/render-gate-bundle-${LINTER_PIN.slice(0, 12)}/view-check-bundle.tgz`
+  : undefined;
 
 let installing = false;
 
@@ -98,7 +110,19 @@ export async function installRenderGate(
         fs.rmSync(dir, { recursive: true, force: true });
         fs.mkdirSync(dir, { recursive: true });
         const tgz = path.join(dir, "bundle.tgz");
-        await download(BUNDLE_URL, tgz);
+        if (PINNED_BUNDLE_URL) {
+          try {
+            await download(PINNED_BUNDLE_URL, tgz);
+            log(`render-gate: bundle ${LINTER_PIN.slice(0, 12)} (matches the pinned linter)`);
+          } catch {
+            log(
+              `render-gate: no per-commit bundle for ${LINTER_PIN.slice(0, 12)} - falling back to the rolling release`
+            );
+            await download(ROLLING_BUNDLE_URL, tgz);
+          }
+        } else {
+          await download(ROLLING_BUNDLE_URL, tgz);
+        }
 
         progress.report({ message: "extracting..." });
         await tar.x({ file: tgz, cwd: dir });
