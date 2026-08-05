@@ -93,6 +93,8 @@ const ICON = {
   tab: `<path d="M2 4h5.5l1 1.5H14V13H2V4zm1.5 1.5v6h9V7H7.7l-1-1.5H3.5z"/>`,
   inspect: `<path d="M7.25 1h1.5v3.2h-1.5V1zM7.25 11.8h1.5V15h-1.5v-3.2zM1 7.25h3.2v1.5H1v-1.5zM11.8 7.25H15v1.5h-3.2v-1.5zM8 5.2A2.8 2.8 0 1 1 8 10.8 2.8 2.8 0 0 1 8 5.2zm0 1.5a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z"/>`,
   model: `<path d="M5.9 2C5 2 4.3 2.7 4.3 3.6v1.9c0 .5-.4.9-.9.9H3v1.2h.4c.5 0 .9.4.9.9v1.9c0 .9.7 1.6 1.6 1.6h1V10.7h-1v-1.6c0-.6-.3-1.2-.8-1.6.5-.4.8-1 .8-1.6V4.3h1V3H5.9zm4.2 0H9v1.3h1v1.6c0 .6.3 1.2.8 1.6-.5.4-.8 1-.8 1.6v1.6H9V12h1.1c.9 0 1.6-.7 1.6-1.6V8.5c0-.5.4-.9.9-.9h.4V6.4h-.4c-.5 0-.9-.4-.9-.9V3.6c0-.9-.7-1.6-1.6-1.6z"/>`,
+  pin: `<path d="M9.5 1.5l5 5-1.4 1.4-.6-.2-2.4 2.4.3 2.3-1.3 1.3-2.6-2.6-3.3 3.3-1.1-1.1 3.3-3.3-2.6-2.6 1.3-1.3 2.3.3 2.4-2.4-.2-.6 1.4-1.4z"/>`,
+  camera: `<path d="M6 2.5h4l.9 1.5H14v9H2v-9h3.1L6 2.5zm2 3.3A3.2 3.2 0 1 0 8 12.2 3.2 3.2 0 0 0 8 5.8zm0 1.5a1.7 1.7 0 1 1 0 3.4 1.7 1.7 0 0 1 0-3.4z"/>`,
 };
 
 function icon(name: keyof typeof ICON): string {
@@ -156,6 +158,8 @@ export interface PreviewOptions {
   theme: string;
   /** `sap-language` currently in force, "" for the logon language. */
   language: string;
+  /** Top-level model paths of the class - what a stateful reload restores. */
+  modelRoots: string[];
   nonce: string;
 }
 
@@ -236,6 +240,22 @@ ${BASE_CSS}
   }
   .errors:hover { opacity: 1; }
   .errors.show { display: inline-flex; }
+  /* Duration of the last backend roundtrip (POST), from the traffic log. */
+  .rt {
+    display: none;
+    flex: none;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.82em;
+    white-space: nowrap;
+    opacity: 0.7;
+    border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.4));
+    cursor: pointer;
+  }
+  .rt:hover { opacity: 1; }
+  .rt.show { display: inline-flex; }
+  .rt.slow { color: var(--vscode-editorWarning-foreground, #d29922); border-color: currentColor; }
   .url {
     min-width: 0;
     flex: 1;
@@ -376,6 +396,7 @@ ${BASE_CSS}
     <span class="name" id="name">${className}</span>
     <button class="badge" id="stale" title="The source was saved but not activated - the preview still shows the active version. Click to reload it anyway.">not activated</button>
     <button class="errors" id="errors" title="Runtime errors the app reported since the last load. Click to open the abap2UI5 output log."></button>
+    <button class="rt" id="rt" title="Last backend roundtrip (POST through the auth proxy). Click to open the traffic log."></button>
     <span class="url" id="url" title="${externalUrl}">${urlLabel}</span>
     <div class="seg" role="group" aria-label="Preview size">
       <button id="d-desktop" data-device="desktop" aria-pressed="true" title="Desktop width">${icon("desktop")}</button>
@@ -392,6 +413,8 @@ ${BASE_CSS}
     )}</select>
     <button class="act" id="inspect" aria-pressed="false" title="Inspect: click a control in the app to jump to its builder call (Esc cancels)">${icon("inspect")}</button>
     <button class="act" id="model" title="Show the app's JSON model">${icon("model")}</button>
+    <button class="act" id="pin" aria-pressed="false" title="Keep the app's model across reloads: capture it before the reload, restore it after (best effort)">${icon("pin")}</button>
+    <button class="act" id="shot" title="Take a screenshot of the running app (headless Chromium)">${icon("camera")}</button>
     <button class="act" id="reload" title="Reload the app">${icon("refresh")}</button>
     <button class="act" id="ext" title="Open in the default browser">${icon("external")}</button>
   </div>
@@ -444,6 +467,12 @@ ${BASE_CSS}
     vscodeApi.postMessage({ type: 'showRuntimeLog' });
   });
 
+  // The roundtrip badge: the host relays every successful POST's duration.
+  const rtEl = document.getElementById('rt');
+  rtEl.addEventListener('click', () => {
+    vscodeApi.postMessage({ type: 'showTraffic' });
+  });
+
   // Inspect mode and the model dump talk to the hook inside the app iframe.
   const inspectBtn = document.getElementById('inspect');
   const modelBtn = document.getElementById('model');
@@ -462,17 +491,58 @@ ${BASE_CSS}
   modelBtn.addEventListener('click', () => {
     postToApp({ __abap2ui5Cmd: 'model' });
   });
+  document.getElementById('shot').addEventListener('click', () => {
+    vscodeApi.postMessage({ type: 'screenshot' });
+  });
 
-  // Device width survives a webview being hidden and restored.
+  // Stateful reload: while the pin is on, the model is captured right before
+  // a reload and restored into the fresh page - so a popup-deep state does
+  // not fall back to square one on every activation.
+  const pinBtn = document.getElementById('pin');
+  let pinOn = false;
+  let modelRoots = ${JSON.stringify(options.modelRoots)};
+  let pendingRestore = null;  // captured model JSON, waiting for the fresh page
+  let awaitingCapture = null; // {url, message} while the capture is in flight
+  function markPin(on) {
+    pinOn = on;
+    pinBtn.setAttribute('aria-pressed', String(on));
+  }
+  pinBtn.addEventListener('click', () => {
+    markPin(!pinOn);
+    persistState();
+  });
+  function filteredRestore(text) {
+    // Only the class's own model roots travel across the reload - the
+    // framework's internal state belongs to the fresh page.
+    try {
+      const all = JSON.parse(text);
+      if (!modelRoots || !modelRoots.length) { return null; }
+      const out = {};
+      let any = false;
+      for (const root of modelRoots) {
+        if (all && typeof all === 'object' && root in all) {
+          out[root] = all[root];
+          any = true;
+        }
+      }
+      return any ? out : null;
+    } catch (e) { return null; }
+  }
+
+  // Device width and the pin survive a webview being hidden and restored.
   const saved = vscodeApi.getState() || {};
   setDevice(saved.device || 'desktop', false);
+  markPin(!!saved.pin);
+  function persistState() {
+    vscodeApi.setState({ device: stage.dataset.device, pin: pinOn });
+  }
 
   function setDevice(device, persist) {
     stage.dataset.device = device;
     for (const btn of document.querySelectorAll('.seg button')) {
       btn.setAttribute('aria-pressed', String(btn.dataset.device === device));
     }
-    if (persist !== false) { vscodeApi.setState({ device: device }); }
+    if (persist !== false) { persistState(); }
   }
 
   function showToast(text) {
@@ -492,17 +562,43 @@ ${BASE_CSS}
     }, 12000);
   }
 
-  function load(url, message) {
+  function doLoad(url, message) {
     beginLoad(message);
     body.dataset.stale = 'false'; // whatever is loading now is the current active version
     setErrorCount(0); // errors of the previous load are history now
+    rtEl.classList.remove('show'); // timings of the previous page are history
     frame.src = url; // reassigning src is what forces the reload
+  }
+
+  function load(url, message) {
+    // With the pin on, ask the running page for its model first; the reload
+    // proceeds when the answer (or a short timeout) arrives.
+    if (!pinOn || body.dataset.state !== 'ready') {
+      pendingRestore = null;
+      doLoad(url, message);
+      return;
+    }
+    awaitingCapture = { url: url, message: message };
+    postToApp({ __abap2ui5Cmd: 'model-restore' });
+    setTimeout(() => {
+      if (awaitingCapture) {
+        const go = awaitingCapture;
+        awaitingCapture = null;
+        pendingRestore = null;
+        doLoad(go.url, go.message);
+      }
+    }, 400);
   }
 
   frame.addEventListener('load', () => {
     clearTimeout(slowTimer);
     body.dataset.state = 'ready';
     markInspect(false); // the fresh page has a fresh hook, mode off
+    if (pinOn && pendingRestore) {
+      const data = filteredRestore(pendingRestore);
+      pendingRestore = null;
+      if (data) { postToApp({ __abap2ui5Cmd: 'restore', data: data }); }
+    }
   });
 
   reloadBtn.addEventListener('click', () => {
@@ -565,6 +661,20 @@ ${BASE_CSS}
       });
       return;
     }
+    if (kind === 'model-restore') {
+      // The capture the pin asked for right before a reload.
+      if (awaitingCapture) {
+        const go = awaitingCapture;
+        awaitingCapture = null;
+        pendingRestore = msg.text || null;
+        doLoad(go.url, go.message);
+      }
+      return;
+    }
+    if (kind === 'restored') {
+      showToast('Model restored');
+      return;
+    }
     if (kind) {
       setErrorCount(errorCount + 1);
       vscodeApi.postMessage({
@@ -580,6 +690,12 @@ ${BASE_CSS}
       body.dataset.stale = 'true';
       return;
     }
+    if (msg.type === 'roundtrip') {
+      rtEl.textContent = msg.ms + ' ms';
+      rtEl.classList.add('show');
+      rtEl.classList.toggle('slow', msg.ms >= 1000);
+      return;
+    }
     if (msg.type !== 'load') { return; }
     const switched = msg.className && msg.className !== nameEl.textContent;
     frameUrl = msg.frameUrl;
@@ -589,9 +705,273 @@ ${BASE_CSS}
     urlEl.title = msg.externalUrl;
     if (typeof msg.theme === 'string') { themeEl.value = msg.theme; }
     if (typeof msg.language === 'string') { languageEl.value = msg.language; }
-    load(frameUrl, (switched ? 'Starting ' : 'Reloading ') + nameEl.textContent + '\\u2026');
+    if (Array.isArray(msg.modelRoots)) { modelRoots = msg.modelRoots; }
+    // Another app means another model - never carry state across a switch.
+    if (switched) { pendingRestore = null; }
+    (switched ? doLoad : load)(
+      frameUrl,
+      (switched ? 'Starting ' : 'Reloading ') + nameEl.textContent + '\\u2026'
+    );
     if (msg.reason) { showToast(msg.reason); }
   });
+})();
+</script>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Property editor (the "Control Properties" view)
+// ---------------------------------------------------------------------------
+
+/**
+ * The skeleton of the property editor view. It renders nothing by itself -
+ * the host posts the control under the cursor (`{type:'control', …}`) or the
+ * reason there is none (`{type:'none'}`), and every edit goes back as a
+ * message; the host owns the source, this form never does.
+ */
+export function propertyEditorHtml(nonce: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
+<title>Control Properties</title>
+<style nonce="${nonce}">
+${BASE_CSS}
+  body { padding: 8px 10px; overflow-y: auto; }
+  .empty { opacity: 0.7; margin: 6px 0; }
+  h2 {
+    margin: 0 0 2px;
+    font-size: 1.05em;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  h2:hover { text-decoration: underline; }
+  .qname { opacity: 0.6; font-size: 0.86em; margin: 0 0 10px; word-break: break-all; }
+  .rows { display: grid; grid-template-columns: minmax(70px, 38%) 1fr auto; gap: 4px 8px; align-items: center; }
+  .rows label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.92em;
+  }
+  .rows label.deprecated { text-decoration: line-through; opacity: 0.7; }
+  input, select {
+    font: inherit;
+    min-width: 0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, transparent);
+  }
+  input:focus-visible, select:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+  }
+  .expr {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+    opacity: 0.75;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  button.remove {
+    padding: 2px 6px;
+    opacity: 0.6;
+  }
+  button.remove:hover { opacity: 1; color: var(--vscode-editorError-foreground, #f85149); }
+  .add {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.25));
+    display: grid;
+    grid-template-columns: minmax(70px, 38%) 1fr auto;
+    gap: 4px 8px;
+  }
+  .add button {
+    padding: 2px 10px;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+  }
+  .add button:hover { background: var(--vscode-button-hoverBackground); }
+</style>
+</head>
+<body>
+  <div id="root"><p class="empty">Place the cursor on an \`open( )\` / \`leaf( )\` builder call - its control's properties appear here. The Inspect button in the preview lands here too.</p></div>
+<script nonce="${nonce}">
+(function () {
+  const vscodeApi = acquireVsCodeApi();
+  const root = document.getElementById('root');
+  let state = null;
+  let queued = null;
+
+  function editing() {
+    const el = document.activeElement;
+    return !!el && (el.tagName === 'INPUT' || el.tagName === 'SELECT');
+  }
+
+  function esc(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+  }
+
+  function render() {
+    if (!state) { return; }
+    if (state.type === 'none') {
+      root.innerHTML = '<p class="empty">' + esc(state.reason || 'No builder control under the cursor.') + '</p>';
+      return;
+    }
+    let html = '<h2 id="title" title="Go to the builder call">' + esc(state.label) + '</h2>';
+    html += '<p class="qname">' + esc(state.control || 'unknown control - is the namespace declared?') + '</p>';
+    html += '<div class="rows">';
+    for (const row of state.rows) {
+      html += '<label class="' + (row.deprecated ? 'deprecated' : '') + '" title="' + esc(row.type || '') + '">' + esc(row.name) + '</label>';
+      if (!row.literal) {
+        html += '<span class="expr" title="' + esc(row.value) + '">' + esc(row.value) + '</span>';
+      } else if (row.values && row.values.length) {
+        html += '<select data-name="' + esc(row.name) + '">' +
+          row.values.map((v) => '<option' + (v === row.value ? ' selected' : '') + '>' + esc(v) + '</option>').join('') +
+          (row.values.indexOf(row.value) < 0 ? '<option selected>' + esc(row.value) + '</option>' : '') +
+          '</select>';
+      } else {
+        html += '<input data-name="' + esc(row.name) + '" value="' + esc(row.value) + '">';
+      }
+      html += '<button class="remove" data-remove="' + esc(row.name) + '" title="Remove this attribute">✕</button>';
+    }
+    html += '</div>';
+    if (state.canAppend) {
+      html += '<div class="add">' +
+        '<input id="add-name" list="members" placeholder="property">' +
+        '<input id="add-value" list="member-values" placeholder="value">' +
+        '<button id="add-btn">Add</button></div>';
+      html += '<datalist id="members">' +
+        state.addable.map((m) => '<option value="' + esc(m.name) + '">' + esc(m.type || '') + '</option>').join('') +
+        '</datalist><datalist id="member-values"></datalist>';
+    }
+    root.innerHTML = html;
+
+    document.getElementById('title').addEventListener('click', () => {
+      vscodeApi.postMessage({ type: 'reveal' });
+    });
+    for (const el of root.querySelectorAll('[data-name]')) {
+      el.addEventListener('change', () => {
+        vscodeApi.postMessage({ type: 'set', name: el.dataset.name, value: el.value });
+      });
+    }
+    for (const el of root.querySelectorAll('[data-remove]')) {
+      el.addEventListener('click', () => {
+        vscodeApi.postMessage({ type: 'remove', name: el.dataset.remove });
+      });
+    }
+    const addName = document.getElementById('add-name');
+    const addBtn = document.getElementById('add-btn');
+    if (addName && addBtn) {
+      addName.addEventListener('input', () => {
+        const member = state.addable.find((m) => m.name === addName.value);
+        const list = document.getElementById('member-values');
+        list.innerHTML = (member && member.values ? member.values : [])
+          .map((v) => '<option value="' + esc(v) + '">').join('');
+      });
+      addBtn.addEventListener('click', () => {
+        const name = addName.value.trim();
+        const value = document.getElementById('add-value').value;
+        if (name) {
+          vscodeApi.postMessage({ type: 'set', name: name, value: value });
+        }
+      });
+    }
+  }
+
+  window.addEventListener('message', (event) => {
+    const msg = event.data || {};
+    if (msg.type !== 'control' && msg.type !== 'none') { return; }
+    if (editing()) { queued = msg; return; } // do not yank the form mid-edit
+    state = msg;
+    render();
+  });
+  window.addEventListener('focusout', () => {
+    setTimeout(() => {
+      if (queued && !editing()) { state = queued; queued = null; render(); }
+    }, 100);
+  });
+})();
+</script>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
+// App navigation map
+// ---------------------------------------------------------------------------
+
+/** The map panel around a rendered SVG (see navmap.ts). App nodes carry
+ *  `data-file`; a click posts it to the host, which opens the class. */
+export function navMapHtml(options: {
+  nonce: string;
+  svg: string;
+  appCount: number;
+  edgeCount: number;
+}): string {
+  const { nonce, svg, appCount, edgeCount } = options;
+  const empty = appCount === 0;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
+<title>abap2UI5 App Navigation</title>
+<style nonce="${nonce}">
+${BASE_CSS}
+  body { padding: 12px 16px; overflow: auto; }
+  .meta { opacity: 0.65; margin: 0 0 14px; }
+  svg { max-width: none; }
+  .edge {
+    fill: none;
+    stroke: var(--vscode-editorLineNumber-foreground, #888);
+    stroke-width: 1.4;
+    opacity: 0.75;
+  }
+  #arrow path { fill: var(--vscode-editorLineNumber-foreground, #888); }
+  .node rect {
+    fill: var(--vscode-button-secondaryBackground, rgba(128,128,128,0.15));
+    stroke: var(--vscode-panel-border, rgba(128,128,128,0.4));
+  }
+  .node[data-file] { cursor: pointer; }
+  .node[data-file]:hover rect {
+    stroke: var(--vscode-focusBorder);
+    fill: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.25));
+  }
+  .node text {
+    fill: var(--vscode-foreground);
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
+  }
+  .node.ext rect { stroke-dasharray: 4 3; opacity: 0.7; }
+  .node.ext text { opacity: 0.7; }
+</style>
+</head>
+<body>
+  <p class="meta">${
+    empty
+      ? "No abap2UI5 app classes found in the workspace - the map draws every class implementing <code>z2ui5_if_app</code> and each <code>nav_app_call( )</code> between them."
+      : `${appCount} app${appCount === 1 ? "" : "s"}, ${edgeCount} navigation${
+          edgeCount === 1 ? "" : "s"
+        } - dashed nodes are nav targets whose source is not in this workspace. Click a node to open its class.`
+  }</p>
+  ${svg}
+<script nonce="${nonce}">
+(function () {
+  const vscodeApi = acquireVsCodeApi();
+  for (const node of document.querySelectorAll('.node[data-file]')) {
+    node.addEventListener('click', () => {
+      vscodeApi.postMessage({ type: 'open', file: node.dataset.file });
+    });
+  }
 })();
 </script>
 </body>

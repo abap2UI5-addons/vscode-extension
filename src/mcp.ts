@@ -68,7 +68,9 @@ function serverEnv(): Record<string, string> {
 
 export function registerMcp(
   context: vscode.ExtensionContext,
-  log: (m: string) => void
+  log: (m: string) => void,
+  /** The in-extension system server (mcpsystem.ts), when the host has one. */
+  system?: { url(): Promise<string> }
 ): void {
   // The MCP API arrived in VS Code 1.101 - keep working (minus MCP) on older
   // builds instead of failing activation.
@@ -87,19 +89,41 @@ export function registerMcp(
     }),
     vscode.lm.registerMcpServerDefinitionProvider(PROVIDER_ID, {
       onDidChangeMcpServerDefinitions: changed.event,
-      provideMcpServerDefinitions: () => {
-        if (!config().get<boolean>("mcp.enabled", true)) {
-          return [];
+      provideMcpServerDefinitions: async () => {
+        const definitions: vscode.McpServerDefinition[] = [];
+        if (config().get<boolean>("mcp.enabled", true)) {
+          const [command, ...args] = serverCommand();
+          definitions.push(
+            new vscode.McpStdioServerDefinition(
+              "abap2UI5",
+              command,
+              args,
+              serverEnv()
+            )
+          );
+          log(`mcp: providing server definition - ${command} ${args.join(" ")}`);
         }
-        const [command, ...args] = serverCommand();
-        const definition = new vscode.McpStdioServerDefinition(
-          "abap2UI5",
-          command,
-          args,
-          serverEnv()
-        );
-        log(`mcp: providing server definition - ${command} ${args.join(" ")}`);
-        return [definition];
+        // The system server: real-system tools, hosted by the extension
+        // itself over HTTP (see mcpsystem.ts).
+        if (
+          system &&
+          config().get<boolean>("mcp.system", true) &&
+          typeof vscode.McpHttpServerDefinition === "function"
+        ) {
+          try {
+            const url = await system.url();
+            definitions.push(
+              new vscode.McpHttpServerDefinition(
+                "abap2UI5 System",
+                vscode.Uri.parse(url)
+              )
+            );
+            log("mcp: providing the system server definition");
+          } catch (err) {
+            log(`mcp: system server failed to start - ${String(err)}`);
+          }
+        }
+        return definitions;
       },
     })
   );

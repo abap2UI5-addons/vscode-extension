@@ -2,7 +2,7 @@
   "name": "abap2ui5",
   "displayName": "abap2UI5",
   "description": "Develop abap2UI5 apps in VS Code: F9 launches a z2ui5_if_app class in an embedded preview, reload on activation, static view checks, the abap2UI5 MCP server for AI agents, snippets.",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "publisher": "abap2ui5",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -107,7 +107,27 @@
       },
       {
         "command": "abap2ui5.newApp",
-        "title": "abap2UI5: Insert New App Template"
+        "title": "abap2UI5: New App from Template"
+      },
+      {
+        "command": "abap2ui5.screenshot",
+        "title": "abap2UI5: Take App Screenshot",
+        "icon": "$(device-camera)"
+      },
+      {
+        "command": "abap2ui5.showTraffic",
+        "title": "abap2UI5: Show Traffic Log",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "abap2ui5.convertXml",
+        "title": "abap2UI5: Convert XML View to Builder Chain",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "abap2ui5.showNavMap",
+        "title": "abap2UI5: Show App Navigation Map",
+        "icon": "$(type-hierarchy-sub)"
       },
       {
         "command": "abap2ui5.openHomepage",
@@ -199,6 +219,18 @@
         {
           "command": "abap2ui5.fixAll",
           "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.screenshot",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.showTraffic",
+          "when": "!isWeb"
+        },
+        {
+          "command": "abap2ui5.showNavMap",
+          "when": "!isWeb"
         }
       ],
       "editor/title": [
@@ -254,6 +286,12 @@
           "id": "abap2ui5.preview",
           "name": "App Preview",
           "type": "webview"
+        },
+        {
+          "id": "abap2ui5.properties",
+          "name": "Control Properties",
+          "type": "webview",
+          "when": "!isWeb"
         }
       ]
     },
@@ -379,6 +417,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Offer the [abap2UI5 MCP server](https://github.com/abap2UI5/ai-mcp) to MCP clients in this window (Copilot agent mode and others). The server gives AI agents the abap2UI5 dev loop without an SAP system: capability queries, static view validation, deploy, build, headless run with screenshot."
+        },
+        "abap2ui5.mcp.system": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Also offer the **abap2UI5 System** MCP server: real-system tools hosted by the extension itself - list the configured systems, search classes on the system (ADT quick search) and run an app through the auth proxy with a headless screenshot. Uses the same credentials the preview stores; the run tool needs the render gate's Chromium."
         },
         "abap2ui5.mcp.command": {
           "type": "string",

@@ -33,6 +33,18 @@ export interface ProxyResponse {
   path: string;
 }
 
+/** One finished request/response pair, as the traffic log records it. The
+ *  duration spans first byte out to last byte in - the full roundtrip the
+ *  user waits for, not the time to first byte. */
+export interface TrafficEntry {
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  /** Response body size as received (before any hook injection). */
+  bytes: number;
+}
+
 // ---------------------------------------------------------------------------
 // Runtime-error forwarding
 // ---------------------------------------------------------------------------
@@ -151,23 +163,43 @@ document.addEventListener('keydown',function(e){
 },true);
 
 // ---- model dump ---------------------------------------------------------
-function sendModel(){
+function appModel(){
+  var el=document.querySelector('[data-sap-ui]');
+  var ctrl=el&&byId(el.getAttribute('data-sap-ui'));
+  var model=ctrl&&ctrl.getModel&&ctrl.getModel();
+  if(!model&&window.sap&&sap.ui&&sap.ui.getCore&&sap.ui.getCore().getModel){
+    model=sap.ui.getCore().getModel();
+  }
+  return model;
+}
+function sendModel(kind){
   try{
-    var el=document.querySelector('[data-sap-ui]');
-    var ctrl=el&&byId(el.getAttribute('data-sap-ui'));
-    var model=ctrl&&ctrl.getModel&&ctrl.getModel();
-    if(!model&&window.sap&&sap.ui&&sap.ui.getCore&&sap.ui.getCore().getModel){
-      model=sap.ui.getCore().getModel();
-    }
+    var model=appModel();
     if(!model||!model.getData){
-      post({${RUNTIME_MESSAGE_MARKER}:'model',error:'no JSON model found on the app (is it still loading?)'});
+      post({${RUNTIME_MESSAGE_MARKER}:kind,error:'no JSON model found on the app (is it still loading?)'});
       return;
     }
     var text=JSON.stringify(model.getData());
-    post({${RUNTIME_MESSAGE_MARKER}:'model',text:String(text).slice(0,2000000)});
+    post({${RUNTIME_MESSAGE_MARKER}:kind,text:String(text).slice(0,2000000)});
   }catch(ex){
-    post({${RUNTIME_MESSAGE_MARKER}:'model',error:String(ex)});
+    post({${RUNTIME_MESSAGE_MARKER}:kind,error:String(ex)});
   }
+}
+
+// ---- model restore (stateful reload) ------------------------------------
+// The preview captured the model before a reload; the fresh page's model
+// only exists once the UI5 bootstrap and the first backend answer are
+// through, so the restore retries until it finds one.
+function tryRestore(data,left){
+  try{
+    var model=appModel();
+    if(model&&model.setData&&model.getData&&model.getData()){
+      model.setData(data,true); // merge - new keys of the fresh load survive
+      post({${RUNTIME_MESSAGE_MARKER}:'restored'});
+      return;
+    }
+  }catch(ex){}
+  if(left>0){setTimeout(function(){tryRestore(data,left-1);},500);}
 }
 
 // ---- commands from the preview ------------------------------------------
@@ -175,7 +207,9 @@ window.addEventListener('message',function(evt){
   var cmd=evt&&evt.data&&evt.data.__abap2ui5Cmd;
   if(!cmd)return;
   if(cmd==='inspect'){setInspect(!!evt.data.on);}
-  if(cmd==='model'){sendModel();}
+  if(cmd==='model'){sendModel('model');}
+  if(cmd==='model-restore'){sendModel('model-restore');}
+  if(cmd==='restore'&&evt.data.data){tryRestore(evt.data.data,20);}
 });
 })();</script>`;
 
@@ -237,6 +271,10 @@ export class SapProxy {
    * uses this to turn a rejected logon into an actionable message.
    */
   onResponse?: (response: ProxyResponse) => void;
+
+  /** Called once per finished response, with the full roundtrip timing -
+   *  what feeds the traffic log and the toolbar's roundtrip badge. */
+  onTraffic?: (entry: TrafficEntry) => void;
 
   /** Starts the proxy (or just refreshes auth if the target stays the same). */
   async start(targetOrigin: string, user: string, pass: string): Promise<number> {
@@ -358,6 +396,7 @@ export class SapProxy {
     const target = this.target!;
     const isHttps = target.protocol === "https:";
     const mod = isHttps ? https : http;
+    const startedAt = Date.now();
 
     // Take over the incoming headers, overwrite host + auth
     const headers: http.OutgoingHttpHeaders = { ...req.headers };
@@ -405,6 +444,22 @@ export class SapProxy {
       this.onResponse?.({
         status: proxyRes.statusCode ?? 0,
         path: String(req.url ?? ""),
+      });
+      // The traffic log: measured to the last body byte, so the duration is
+      // what the user actually waited for. The extra data listener rides
+      // alongside pipe( ) without disturbing it.
+      let receivedBytes = 0;
+      proxyRes.on("data", (chunk: Buffer) => {
+        receivedBytes += chunk.length;
+      });
+      proxyRes.on("end", () => {
+        this.onTraffic?.({
+          method: String(req.method ?? "GET"),
+          path: String(req.url ?? ""),
+          status: proxyRes.statusCode ?? 0,
+          durationMs: Date.now() - startedAt,
+          bytes: receivedBytes,
+        });
       });
       const outHeaders: http.OutgoingHttpHeaders = { ...proxyRes.headers };
 

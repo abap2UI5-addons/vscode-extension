@@ -1,0 +1,149 @@
+import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import { spawn } from "child_process";
+import { offerInstall, renderGateBrowsers } from "./rendergate";
+
+/*
+ * "Take App Screenshot" - the running app as a PNG, without leaving the
+ * editor.
+ *
+ * A webview cannot rasterise a cross-origin iframe, so the screenshot is
+ * taken the honest way: headless Chromium loads the same proxied URL the
+ * preview shows (credentials injected by the auth proxy, so no login page)
+ * and `--screenshot` writes the PNG. The Chromium is the one the render gate
+ * installs - one download shared by both features; without it the command
+ * offers the install.
+ */
+
+/** Where playwright's CLI puts the browser: <dir>/chromium-<build>/<platform>/…
+ *  The newest build wins when several are installed. */
+export function findChromium(browsersDir: string): string | undefined {
+  let builds: string[];
+  try {
+    builds = fs
+      .readdirSync(browsersDir)
+      .filter((e) => e.startsWith("chromium"))
+      .sort()
+      .reverse();
+  } catch {
+    return undefined;
+  }
+  const layouts = [
+    ["chrome-linux", "chrome"],
+    ["chrome-linux64", "chrome"],
+    ["chrome-win", "chrome.exe"],
+    ["chrome-win64", "chrome.exe"],
+    ["chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"],
+    ["chrome-mac-arm64", "Chromium.app", "Contents", "MacOS", "Chromium"],
+  ];
+  for (const build of builds) {
+    for (const layout of layouts) {
+      const candidate = path.join(browsersDir, build, ...layout);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return undefined;
+}
+
+const SHOT_TIMEOUT_MS = 45_000;
+
+function runChromium(
+  chromium: string,
+  args: string[],
+  log: (m: string) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(chromium, args, { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("Chromium did not finish within 45 s"));
+    }, SHOT_TIMEOUT_MS);
+    child.stderr.on("data", (c) => (stderr += String(c)));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+      } else {
+        log(`screenshot: chromium stderr: ${stderr.slice(0, 400)}`);
+        reject(new Error(`Chromium exited with code ${code}`));
+      }
+    });
+  });
+}
+
+/**
+ * Renders `url` headless and returns the PNG's path, or undefined when the
+ * screenshot could not be taken (the reason is already on screen then).
+ */
+export async function takeScreenshot(
+  context: vscode.ExtensionContext,
+  options: { url: string; className: string },
+  log: (m: string) => void
+): Promise<string | undefined> {
+  const chromium = findChromium(renderGateBrowsers(context));
+  if (!chromium) {
+    void offerInstall(
+      context,
+      log,
+      "taking a screenshot renders the app in headless Chromium, which the " +
+        "render gate installs - install it once?"
+    );
+    return undefined;
+  }
+
+  const dir = path.join(context.globalStorageUri.fsPath, "screenshots");
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date()
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[:T]/g, "-");
+  const file = path.join(dir, `${options.className}-${stamp}.png`);
+
+  const args = [
+    "--headless=new",
+    "--disable-gpu",
+    "--hide-scrollbars",
+    "--window-size=1280,900",
+    `--screenshot=${file}`,
+    // Fast-forwards the page's timers so the UI5 boot and the first backend
+    // roundtrip are through before the shot - deterministic, no sleep.
+    "--virtual-time-budget=15000",
+    options.url,
+  ];
+  // Chromium refuses its sandbox as root (containers, some CI images).
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    args.unshift("--no-sandbox");
+  }
+
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Window,
+        title: `abap2UI5: screenshotting ${options.className}`,
+      },
+      () => runChromium(chromium, args, log)
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(
+      "abap2UI5: screenshot failed - " +
+        (err instanceof Error ? err.message : String(err))
+    );
+    return undefined;
+  }
+  if (!fs.existsSync(file)) {
+    vscode.window.showErrorMessage(
+      "abap2UI5: Chromium finished but wrote no PNG - see the output channel."
+    );
+    return undefined;
+  }
+  log(`screenshot: ${file}`);
+  return file;
+}

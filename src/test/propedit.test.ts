@@ -1,0 +1,113 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { controlCallAt } from "../context";
+import { removeAttributeEdit, setAttributeEdit } from "../propedit";
+
+const SOURCE = `CLASS zcl_x DEFINITION PUBLIC.
+  PUBLIC SECTION.
+    INTERFACES z2ui5_if_app.
+    DATA mv_value TYPE string.
+ENDCLASS.
+CLASS zcl_x IMPLEMENTATION.
+  METHOD z2ui5_if_app~main.
+    DATA(view) = z2ui5_cl_ai_xml=>factory( ).
+    view->open( n = \`View\` ns = \`mvc\`
+        )->a( n = \`xmlns\` v = \`sap.m\`
+        )->a( n = \`xmlns:mvc\` v = \`sap.ui.core.mvc\`
+        )->open( \`Page\`
+            )->a( n = \`title\` v = \`Hello\`
+            )->leaf( \`Button\`
+                )->a( n = \`text\`  v = \`Press me\`
+                )->a( n = \`press\` v = client->_event( \`GO\` )
+            )->leaf( \`Input\`
+                )->a( n = \`value\` v = client->_bind( mv_value ) ).
+    client->view_display( view->stringify( ) ).
+  ENDMETHOD.
+ENDCLASS.`;
+
+function apply(source: string, edit: { start: number; end: number; text: string }): string {
+  return source.slice(0, edit.start) + edit.text + source.slice(edit.end);
+}
+
+test("controlCallAt finds the control block under the cursor", () => {
+  const at = SOURCE.indexOf("`Press me`");
+  const call = controlCallAt(SOURCE, at)!;
+  assert.equal(call.label, "Button");
+  assert.equal(call.control, "sap.m.Button");
+  assert.equal(call.attrs.length, 2);
+  assert.deepEqual(
+    call.attrs.map((a) => [a.name, a.literal]),
+    [
+      ["text", true],
+      ["press", false],
+    ]
+  );
+  assert.equal(call.attrs[1].value, "client->_event( `GO` )");
+});
+
+test("controlCallAt resolves the namespace of the root", () => {
+  const call = controlCallAt(SOURCE, SOURCE.indexOf("`View`"))!;
+  assert.equal(call.control, "sap.ui.core.mvc.View");
+});
+
+test("the cursor outside any control block finds nothing", () => {
+  assert.equal(controlCallAt(SOURCE, SOURCE.indexOf("view_display")), undefined);
+  assert.equal(controlCallAt(SOURCE, 0), undefined);
+});
+
+test("setAttributeEdit rewrites an existing literal in place", () => {
+  const call = controlCallAt(SOURCE, SOURCE.indexOf("`Press me`"))!;
+  const edit = setAttributeEdit(SOURCE, call, "text", "Go!")!;
+  const next = apply(SOURCE, edit);
+  assert.ok(next.includes("n = `text`  v = `Go!`"));
+  assert.ok(!next.includes("Press me"));
+});
+
+test("setAttributeEdit escapes the literal's quote", () => {
+  const call = controlCallAt(SOURCE, SOURCE.indexOf("`Press me`"))!;
+  const edit = setAttributeEdit(SOURCE, call, "text", "a ` b")!;
+  assert.equal(edit.text, "a `` b");
+});
+
+test("setAttributeEdit appends a new chain line for an unset member", () => {
+  const call = controlCallAt(SOURCE, SOURCE.indexOf("`Press me`"))!;
+  const edit = setAttributeEdit(SOURCE, call, "enabled", "false")!;
+  const next = apply(SOURCE, edit);
+  assert.ok(
+    next.includes(
+      ")->a( n = `press` v = client->_event( `GO` )\n" +
+        "                )->a( n = `enabled` v = `false`\n"
+    ),
+    next.slice(edit.start - 120, edit.start + 120)
+  );
+});
+
+test("an expression value is not rewritten", () => {
+  const call = controlCallAt(SOURCE, SOURCE.indexOf("`Press me`"))!;
+  assert.equal(setAttributeEdit(SOURCE, call, "press", "GO2"), undefined);
+});
+
+test("removeAttributeEdit drops the whole chain line", () => {
+  const call = controlCallAt(SOURCE, SOURCE.indexOf("`Press me`"))!;
+  const edit = removeAttributeEdit(SOURCE, call, "text")!;
+  const next = apply(SOURCE, edit);
+  assert.ok(!next.includes("Press me"));
+  // the chain stays intact: leaf directly followed by the press attribute
+  assert.ok(
+    next.includes(")->leaf( `Button`\n                )->a( n = `press`")
+  );
+});
+
+test("a control with no attributes appends one step under its own line", () => {
+  const source = `    view->open( n = \`View\` ns = \`mvc\`
+        )->a( n = \`xmlns\` v = \`sap.m\`
+        )->leaf( \`Text\`
+        )->shut( ).`;
+  const call = controlCallAt(source, source.indexOf("`Text`"))!;
+  assert.equal(call.attrs.length, 0);
+  const edit = setAttributeEdit(source, call, "text", "hi")!;
+  const next = apply(source, edit);
+  assert.ok(
+    next.includes(")->leaf( `Text`\n            )->a( n = `text` v = `hi`\n")
+  );
+});

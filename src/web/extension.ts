@@ -3,7 +3,8 @@ import { setSnapshotText, snapshotError } from "../snapshot";
 import { registerLanguageFeatures } from "../language";
 import { registerXmlPreview } from "../xmlpreview";
 import { registerWebCheck, webFindingsNow } from "../webcheck";
-import { APP_TEMPLATE } from "../template";
+import { registerNewApp } from "../wizard";
+import { registerConvert } from "../convert";
 
 /*
  * The web extension host entry (vscode.dev, github.dev, browser-based SAP
@@ -55,21 +56,15 @@ export async function activate(
   registerLanguageFeatures(context, log);
   registerWebCheck(context, log);
   registerXmlPreview(context, log, webFindingsNow);
+  registerNewApp(context);
+  registerConvert(context, log);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("abap2ui5.openHomepage", () =>
       vscode.env.openExternal(
         vscode.Uri.parse("https://github.com/abap2UI5/abap2UI5")
       )
-    ),
-    vscode.commands.registerCommand("abap2ui5.newApp", async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showWarningMessage("Please open an ABAP file first.");
-        return;
-      }
-      await editor.edit((b) => b.insert(editor.selection.active, APP_TEMPLATE));
-    })
+    )
   );
 }
 

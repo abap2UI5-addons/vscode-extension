@@ -565,6 +565,219 @@ export function viewOutline(source: string): OutlineNode[] {
 }
 
 // ---------------------------------------------------------------------------
+// The control call at a position, with its written attributes - what the
+// property editor reads and edits
+// ---------------------------------------------------------------------------
+
+/** One `a( )` chained to a control call, spans included so it can be edited
+ *  in place. */
+export interface ChainAttribute {
+  name: string;
+  /** The value as written: a literal's content, or the expression source. */
+  value: string;
+  /** True for a plain literal - the editor may rewrite its content span.
+   *  False for an expression (`client->_bind( … )`, `|…|`), which the
+   *  editor shows but does not rewrite. */
+  literal: boolean;
+  /** What a new value replaces: the literal's content span. Only set for
+   *  literals. */
+  valueStart?: number;
+  valueEnd?: number;
+  /** The a-call's `(` and its matching `)` (usually on the next chain line). */
+  aOpen: number;
+  aClose?: number;
+}
+
+export interface ControlCall {
+  /** Control name as written, prefix included (`f:Card`). */
+  label: string;
+  /** Library-qualified control, when the namespace resolves. */
+  control?: string;
+  /** Offset of the call name - the stable anchor identifying this call. */
+  tokenStart: number;
+  /**
+   * Where an appended `)->a( … )` line goes: the offset of the newline that
+   * ends the block's last line, so inserting `\n<indent>)->a( … )` there
+   * puts the new attribute before the chain line that closes the call.
+   * -1 when the chain is not line-per-segment and appending is unsafe.
+   */
+  appendAt: number;
+  /** Indent for an appended attribute line. */
+  appendIndent: string;
+  attrs: ChainAttribute[];
+}
+
+/** Content span of a named literal argument inside a call, with the quote. */
+function argLiteralSpan(
+  source: string,
+  call: Call,
+  name: string
+): { start: number; end: number; quote: string } | undefined {
+  const args = argsOf(source, call);
+  const m = new RegExp(
+    "\\b" + name + "\\s*=\\s*(?:`([^`]*)`|'([^']*)'|\"([^\"]*)\")",
+    "i"
+  ).exec(args);
+  if (!m) {
+    return undefined;
+  }
+  const value = m[1] ?? m[2] ?? m[3];
+  const matchEnd = call.open + 1 + m.index + m[0].length;
+  return {
+    start: matchEnd - 1 - value.length,
+    end: matchEnd - 1,
+    quote: source[matchEnd - 1],
+  };
+}
+
+/** The `v = …` argument when it is an expression, not a literal: its span
+ *  from the first value character to the end of the call's arguments. */
+function argExpressionSpan(
+  source: string,
+  call: Call
+): { start: number; end: number } | undefined {
+  const args = argsOf(source, call);
+  const m = /\bv\s*=\s*/i.exec(args);
+  if (!m) {
+    return undefined;
+  }
+  const start = call.open + 1 + m.index + m[0].length;
+  if (`'"\``.includes(source[start])) {
+    return undefined; // a literal - argLiteralSpan's business
+  }
+  let end = call.close ?? source.length;
+  while (end > start && /\s/.test(source[end - 1])) {
+    end--;
+  }
+  return { start, end };
+}
+
+const STRUCTURAL = ["open", "leaf", "shut", "factory", "stringify"];
+
+/**
+ * The `open( )` / `leaf( )` whose block (the call plus its chained `a( )`
+ * lines) contains `offset`, with every attribute's spans - or undefined when
+ * the cursor is not on a builder control. The last matching control wins,
+ * which is the innermost one on shared lines.
+ */
+export function controlCallAt(
+  source: string,
+  offset: number
+): ControlCall | undefined {
+  const { calls } = scanAbap(source, source.length);
+  const ns = abapNsMap(source);
+  let found: ControlCall | undefined;
+
+  for (let i = 0; i < calls.length; i++) {
+    const call = calls[i];
+    const name = call.name.toLowerCase();
+    if (name !== "open" && name !== "leaf") {
+      continue;
+    }
+    const tokenStart = call.open - call.name.length;
+    if (tokenStart > offset) {
+      break;
+    }
+    // The attribute run: every `a( )` up to the next structural call.
+    const attrCalls: Call[] = [];
+    for (let j = i + 1; j < calls.length; j++) {
+      const next = calls[j].name.toLowerCase();
+      if (STRUCTURAL.includes(next)) {
+        break;
+      }
+      if (next === "a") {
+        attrCalls.push(calls[j]);
+      }
+    }
+    const last = attrCalls[attrCalls.length - 1] ?? call;
+    const blockEnd = last.close ?? source.length;
+    if (offset > blockEnd) {
+      continue;
+    }
+
+    const attrs: ChainAttribute[] = [];
+    for (const a of attrCalls) {
+      const attrName = argLiteralSpan(source, a, "n");
+      if (!attrName) {
+        continue;
+      }
+      const literal = argLiteralSpan(source, a, "v");
+      const expression = literal ? undefined : argExpressionSpan(source, a);
+      const nameText = source.slice(attrName.start, attrName.end);
+      if (literal) {
+        attrs.push({
+          name: nameText,
+          value: source.slice(literal.start, literal.end),
+          literal: true,
+          valueStart: literal.start,
+          valueEnd: literal.end,
+          aOpen: a.open,
+          aClose: a.close,
+        });
+      } else if (expression) {
+        attrs.push({
+          name: nameText,
+          value: source.slice(expression.start, expression.end),
+          literal: false,
+          aOpen: a.open,
+          aClose: a.close,
+        });
+      }
+    }
+
+    // Appending is only safe in the line-per-segment style: the new line
+    // slides in before the chain line whose leading `)` closes the block.
+    const anchorClose = last.close;
+    let appendAt = -1;
+    if (anchorClose !== undefined) {
+      const newlineBeforeClose = source.lastIndexOf("\n", anchorClose);
+      if (newlineBeforeClose > last.open) {
+        appendAt = newlineBeforeClose;
+      }
+    } else {
+      const eol = source.indexOf("\n", last.open);
+      appendAt = eol < 0 ? source.length : eol;
+    }
+    const anchorLineStart =
+      source.lastIndexOf("\n", (attrCalls[attrCalls.length - 1] ?? call).open) + 1;
+    const anchorLine = source.slice(anchorLineStart);
+    const anchorIndent = anchorLine.slice(0, anchorLine.length - anchorLine.trimStart().length);
+    const appendIndent = attrCalls.length ? anchorIndent : anchorIndent + "    ";
+
+    // The corpus writes a lone name positionally (`leaf( \`Button\` )`) -
+    // fall back to the first bare literal when no `n =` is written.
+    const callArgs = argsOf(source, call);
+    const written =
+      argLiteral(callArgs, "n") ??
+      /^\s*(?:`([^`]*)`|'([^']*)'|"([^"]*)")/
+        .exec(callArgs)
+        ?.slice(1)
+        .find((v) => v !== undefined);
+    const prefix = written ? splitName(written).prefix : "";
+    const nsArg = argLiteral(callArgs, "ns") ?? "";
+    const library = written
+      ? (ns[prefix || nsArg] ?? (prefix || nsArg ? undefined : DEFAULT_LIBRARY))
+      : undefined;
+    found = {
+      label: written
+        ? nsArg && !written.includes(":")
+          ? `${nsArg}:${written}`
+          : written
+        : "?",
+      control:
+        written && library
+          ? `${library}.${splitName(written).local}`
+          : undefined,
+      tokenStart,
+      appendAt,
+      appendIndent,
+      attrs,
+    };
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
 // Events: from the view's _event( ) to the WHEN branch that handles it
 // ---------------------------------------------------------------------------
 

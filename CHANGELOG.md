@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.21.0
+
+- **Traffic log with roundtrip timings.** The auth proxy sees every request
+  the embedded app makes; the new **abap2UI5 Traffic** output channel logs
+  each one with method, status, size and the full roundtrip duration, and
+  the preview toolbar shows the last backend POST's timing as a badge
+  (warning-coloured from 1 s). "Is the backend slow or the UI?" stops being
+  a devtools trip.
+- **Take App Screenshot.** The running app as a PNG, opened beside the code
+  with Save As… one click away — rendered by the render gate's headless
+  Chromium through the same auth proxy, so no login page and no browser.
+  Command, plus the 📷 button in the preview toolbar.
+- **Stateful reload.** The 📌 toolbar toggle captures the app's JSON model
+  right before a reload and restores it into the fresh page — only the
+  paths the class itself declares (the same derived model completion
+  already uses), so framework state stays with the fresh load. A
+  popup-deep test state survives the activate-reload loop.
+- **Control Properties panel.** The builder control under the cursor as an
+  editable form, next to the App Preview: written attributes with enum
+  dropdowns from the UI5 metadata, expression values read-only, an add-row
+  for every member the control accepts but does not set. Every change is an
+  ordinary text edit of the `a( )` calls — undo works, the linter
+  re-checks. With Inspect: click the control in the app, adjust it in the
+  form.
+- **Colour swatches.** A colour written into a colour-typed property
+  (`sap.ui.core.CSSColor` and friends) gets VS Code's inline swatch and
+  colour picker — in builder chains and raw view XML, on the web too.
+- **Convert XML View to Builder Chain.** The reverse of the reconstructed
+  XML view: paste a UI5 demo kit sample (selection, document or clipboard)
+  and get the `z2ui5_cl_ai_xml` chain in the corpus style — Format Document
+  is a no-op on the result, and whatever the builder cannot express becomes
+  a TODO comment instead of a silent drop. Porting starts with paste.
+- **New App from Template.** The single skeleton grew into a gallery:
+  empty view, list, form, master & detail, popup — pick one, name the
+  class, and it lands at the cursor or as a new document. Every template
+  passes the bundled linter in the test suite, so the gallery cannot teach
+  what the linter reports.
+- **App navigation map.** *"Show App Navigation Map"* draws every
+  `z2ui5_if_app` class in the workspace and each `nav_app_call( )` between
+  them as a clickable graph — apps nothing navigates to on the left,
+  unresolved targets dashed. Click a node, land in the class.
+- **The abap2UI5 System MCP server.** ai-mcp stays the system-less
+  sandbox; the extension now also offers real-system tools it alone can
+  provide (configured systems, stored credentials, auth proxy):
+  `list_systems`, `search_apps` (ADT quick search) and `run_app` — the app
+  rendered on the system, returned as a screenshot. Hosted in-extension
+  over HTTP on 127.0.0.1, disabled with `abap2ui5.mcp.system: false`.
+
 ## 0.20.0
 
 - **The client API is known before the fact.** `client->` completion offers

@@ -11,9 +11,21 @@ test("the preview carries the runtime-error badge, reset on every load", () => {
     className: "ZCL_X",
     theme: "",
     language: "",
+    modelRoots: ["MT_ITEMS"],
     nonce: "n0nce",
   });
   assert.ok(html.includes('id="errors"'));
+  // The roundtrip badge and the traffic log behind it.
+  assert.ok(html.includes('id="rt"'));
+  assert.ok(html.includes("showTraffic"));
+  // Stateful reload: the pin, the capture command and the restore.
+  assert.ok(html.includes('id="pin"'));
+  assert.ok(html.includes("model-restore"));
+  assert.ok(html.includes("'restore'"));
+  assert.ok(html.includes('["MT_ITEMS"]'));
+  // The screenshot button relays to the host command.
+  assert.ok(html.includes('id="shot"'));
+  assert.ok(html.includes("screenshot"));
   // The relay: the marked iframe messages reach the host as runtimeError.
   assert.ok(html.includes("__abap2ui5Runtime"));
   assert.ok(html.includes("runtimeError"));

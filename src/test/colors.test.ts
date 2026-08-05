@@ -1,0 +1,89 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  abapColorSpans,
+  formatCssColor,
+  parseCssColor,
+  xmlColorSpans,
+} from "../colors";
+
+test("parseCssColor covers hex, rgb(), hsl() and named colours", () => {
+  assert.deepEqual(parseCssColor("#ff0000"), {
+    red: 1,
+    green: 0,
+    blue: 0,
+    alpha: 1,
+  });
+  assert.deepEqual(parseCssColor("#f00"), {
+    red: 1,
+    green: 0,
+    blue: 0,
+    alpha: 1,
+  });
+  assert.equal(parseCssColor("#ff000080")!.alpha.toFixed(2), "0.50");
+  assert.deepEqual(parseCssColor("rgb(0, 255, 0)"), {
+    red: 0,
+    green: 1,
+    blue: 0,
+    alpha: 1,
+  });
+  assert.equal(parseCssColor("rgba(0,0,255,0.5)")!.alpha, 0.5);
+  const hsl = parseCssColor("hsl(0, 100%, 50%)")!;
+  assert.equal(hsl.red, 1);
+  assert.equal(hsl.green, 0);
+  assert.deepEqual(parseCssColor("red"), {
+    red: 1,
+    green: 0,
+    blue: 0,
+    alpha: 1,
+  });
+  assert.equal(parseCssColor("Highlight"), undefined); // not a CSS colour
+  assert.equal(parseCssColor("{/COLOR}"), undefined); // a binding, not a value
+  assert.equal(parseCssColor(""), undefined);
+});
+
+test("formatCssColor writes hex while opaque, rgba() with alpha", () => {
+  assert.equal(
+    formatCssColor({ red: 1, green: 0, blue: 0, alpha: 1 }),
+    "#ff0000"
+  );
+  assert.equal(
+    formatCssColor({ red: 0, green: 0, blue: 1, alpha: 0.5 }),
+    "rgba(0,0,255,0.5)"
+  );
+});
+
+const ABAP = `
+  DATA(view) = z2ui5_cl_ai_xml=>factory( ).
+  view->open( n = \`View\` ns = \`mvc\`
+      )->a( n = \`xmlns\` v = \`sap.m\`
+      )->leaf( \`ObjectStatus\`
+          )->a( n = \`text\` v = \`red\`
+          )->a( n = \`iconColor\` v = \`#1873b4\`
+      )->leaf( \`Text\`
+          )->a( n = \`text\` v = \`#123456\` ).
+`;
+
+test("abapColorSpans finds colour-typed values, not colour-looking text", () => {
+  const spans = abapColorSpans(ABAP, (control, member) => {
+    assert.match(control, /^sap\./);
+    return member === "iconColor";
+  });
+  assert.equal(spans.length, 1);
+  const value = ABAP.slice(spans[0].start, spans[0].end);
+  assert.equal(value, "#1873b4");
+  // `text = red` and the hex in a non-colour member never become swatches
+});
+
+const XML = `<mvc:View xmlns="sap.m" xmlns:mvc="sap.ui.core.mvc">
+  <ObjectStatus text="ok" iconColor="rgb(24, 115, 180)"/>
+  <Text text="#abcdef"/>
+</mvc:View>`;
+
+test("xmlColorSpans resolves the tag's control and filters by member", () => {
+  const spans = xmlColorSpans(XML, (control, member) => {
+    return control === "sap.m.ObjectStatus" && member === "iconColor";
+  });
+  assert.equal(spans.length, 1);
+  assert.equal(XML.slice(spans[0].start, spans[0].end), "rgb(24, 115, 180)");
+});
