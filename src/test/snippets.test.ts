@@ -7,7 +7,7 @@ import { annotate, severityOf } from "@abap2ui5/linter/findings";
 import { runGate } from "../gate";
 import { snapshot } from "../snapshot";
 import { usesBuilder } from "../abap";
-import { APP_TEMPLATE } from "../template";
+import { APP_TEMPLATE, APP_TEMPLATES, templateSource } from "../template";
 import { clientMethod } from "../clientapi";
 
 /*
@@ -130,11 +130,77 @@ test("the app template passes the bundled linter", () => {
   assert.deepEqual(findings, []);
 });
 
+test("every gallery template passes the bundled linter", () => {
+  for (const template of APP_TEMPLATES) {
+    const findings = gatingFindings(templateSource(template, "zcl_wizard"));
+    assert.deepEqual(
+      findings,
+      [],
+      `template "${template.label}" does not pass the linter it ships with`
+    );
+  }
+});
+
+test("the wizard renames the class everywhere", () => {
+  for (const template of APP_TEMPLATES) {
+    const renamed = templateSource(template, "ZCL_RENAMED");
+    assert.ok(!/zcl_my_app/i.test(renamed));
+    assert.match(renamed, /CLASS zcl_renamed DEFINITION PUBLIC/);
+  }
+});
+
+/** Paren balance with ABAP literals (`…`, '…'), templates (|…|) and
+ *  line comments (") blanked - chain style demands a net of zero. */
+function parenBalance(source: string): number {
+  let depth = 0;
+  for (const line of source.split("\n")) {
+    let i = 0;
+    while (i < line.length) {
+      const c = line[i];
+      if (c === "`" || c === "'" || c === "|") {
+        const close = line.indexOf(c, i + 1);
+        i = close < 0 ? line.length : close + 1;
+        continue;
+      }
+      if (c === '"') {
+        break; // comment to end of line
+      }
+      if (c === "(") {
+        depth++;
+      } else if (c === ")") {
+        depth--;
+      }
+      i++;
+    }
+  }
+  return depth;
+}
+
+test("every shipped chain balances its parentheses", () => {
+  // The linter's reconstruction scan tolerates an unbalanced chain - real
+  // ABAP does not. z2ui5table shipped one for a while; this pins it down.
+  for (const snippet of loadSnippets()) {
+    assert.equal(
+      parenBalance(wrap(expand(snippet.body))),
+      0,
+      `snippet ${snippet.prefix} has unbalanced parentheses`
+    );
+  }
+  for (const template of APP_TEMPLATES) {
+    assert.equal(
+      parenBalance(template.source),
+      0,
+      `template "${template.label}" has unbalanced parentheses`
+    );
+  }
+});
+
 test("no shipped ABAP calls a method the interface marks obsolete", () => {
   // the linter catches _bind_edit specifically; this catches the whole
   // class of mistake - any client-> call whose abapdoc says obsolete
   const sources = [
     APP_TEMPLATE,
+    ...APP_TEMPLATES.map((t) => t.source),
     ...loadSnippets().map((s) => expand(s.body)),
   ];
   for (const source of sources) {

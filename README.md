@@ -36,6 +36,31 @@ tying the extension to a system is the launch URL you configure once.
   it. The `{ }` button next to it shows the running app's **JSON model** as
   a document — live values next to the statically known shape. See
   [Inspect and the live model](#inspect-and-the-live-model).
+- **Traffic log with roundtrip timings** – Every request of the embedded app
+  passes through the auth proxy, so it is logged with method, status, size
+  and the full roundtrip duration; the toolbar shows the last backend POST's
+  timing as a badge. See [Traffic log](#traffic-log-and-roundtrip-timings).
+- **Take App Screenshot** – The running app as a PNG, rendered by the render
+  gate's headless Chromium through the same auth proxy — for bug reports and
+  docs, without a browser. See [Screenshots](#screenshots).
+- **Keep the model across reloads** – The 📌 toolbar toggle captures the
+  app's JSON model right before a reload and restores the class's own paths
+  into the fresh page — a popup-deep test state survives the activation
+  loop. See [Stateful reload](#stateful-reload-the-pin).
+- **Control Properties panel** – The control under the cursor as an editable
+  form: written attributes with enum dropdowns, every further member the
+  UI5 metadata offers, each change an ordinary text edit of the `a( )`
+  calls. See [Control properties](#control-properties).
+- **Colour swatches** – A colour written into a colour-typed property
+  (`sap.ui.core.CSSColor` and friends) gets VS Code's inline swatch and
+  picker, in builder chains and raw view XML alike.
+- **Convert XML to a builder chain** – Paste a UI5 demo kit sample (or any
+  view XML) and get the `z2ui5_cl_ai_xml` chain in the corpus style —
+  the reverse of the reconstructed XML view. See
+  [XML to builder chain](#xml-to-builder-chain).
+- **App navigation map** – Every `z2ui5_if_app` class in the workspace and
+  each `nav_app_call( )` between them as a clickable graph. See
+  [Navigation map](#app-navigation-map).
 - **Status bar** – While an app is running the status bar shows the class and
   the system; clicking it reloads the preview.
 - **Several systems** – Name your systems in `abap2ui5.systems` and switch
@@ -83,7 +108,10 @@ tying the extension to a system is the launch URL you configure once.
   `z2ui5leaf`, `z2ui5button`, `z2ui5input`, `z2ui5table`, `z2ui5event`,
   `z2ui5popup`, `z2ui5popover`, `z2ui5toast`, `z2ui5msgbox`, `z2ui5navto`,
   `z2ui5navback`, `z2ui5modelupdate`, `z2ui5eventarg`, `z2ui5disable`.
-- **Insert an app template** – Class skeleton for a new abap2UI5 app.
+- **New App from Template** – A template gallery instead of one skeleton:
+  empty view, list, form, master & detail, popup — pick one, name the
+  class, done. Every template ships linter-clean (the test suite enforces
+  it).
 
 All commands are available from the Command Palette (`Ctrl/Cmd + Shift + P`).
 
@@ -204,6 +232,68 @@ Two more toolbar buttons talk to the running app through the same hook:
 
 Both need the embedded preview (`tab` or `panel` mode) — in `external` mode
 the app runs in a real browser, which has its own devtools.
+
+### Traffic log and roundtrip timings
+
+The auth proxy sees every request the embedded app makes, which makes it a
+free network tab: the **abap2UI5 Traffic** output channel logs each one with
+method, status, the full roundtrip duration (first byte out to last byte in)
+and the response size. The POSTs are the app's backend roundtrips — every
+abap2UI5 event is one — so the preview toolbar shows the last POST's duration
+as a badge, turning warning-coloured from one second up. Clicking the badge
+(or *"abap2UI5: Show Traffic Log"*) opens the log. "Is the backend slow or
+the UI?" stops being a devtools trip.
+
+### Screenshots
+
+*"abap2UI5: Take App Screenshot"* (also the 📷 toolbar button) renders the
+running app headless and opens the PNG beside the code, with **Save As…** one
+click away. A webview cannot rasterise its iframe, so the shot is taken the
+honest way: the render gate's Chromium loads the same proxied URL the preview
+shows — credentials injected, no login page — and `--screenshot` writes the
+file. Needs the render gate installed once (*"abap2UI5: Install Render
+Gate"*); the command offers it when missing.
+
+### Stateful reload (the pin)
+
+A reload is a fresh start: the model reverts to `main`'s init state, and the
+three clicks that reproduced the bug have to be clicked again — on every
+activation. With the 📌 toolbar toggle on, the preview captures the app's
+JSON model right before a reload and restores it into the fresh page once the
+app is up — only the paths the class itself declares (the same derived model
+completion and hover use), so the framework's internal state stays with the
+fresh load. Best effort by design: server-side state is not carried over, and
+switching to another app never restores anything.
+
+### Control properties
+
+The **Control Properties** view (next to the App Preview in the abap2UI5
+panel) shows the builder control under the cursor as a form: the attributes
+the chain writes — enum properties as dropdowns with the values the UI5
+metadata knows, expression values like `client->_bind( … )` read-only — and
+an add-row offering every member the control accepts but the chain does not
+set. Every change is an ordinary text edit of the `a( )` calls: undo works,
+the view check re-checks, nothing but the class holds the truth. Combined
+with Inspect, "click the control in the app, adjust its property in the
+form" is two clicks.
+
+### XML to builder chain
+
+*"abap2UI5: Convert XML View to Builder Chain"* is the reverse direction of
+the reconstructed XML view: UI5 view XML in — the selection, the active
+document, or the clipboard — and the `z2ui5_cl_ai_xml` chain comes out as a
+new ABAP document, in the corpus style (Format Document is a no-op on the
+result). Text content and other things the builder cannot express are listed
+as `TODO` comments instead of dropped silently. Porting a demo kit sample
+starts with paste instead of transcription.
+
+### App navigation map
+
+*"abap2UI5: Show App Navigation Map"* scans the workspace for classes
+implementing `z2ui5_if_app` and draws them as a graph, one arrow per
+`client->nav_app_call( )` — apps nothing navigates to on the left, targets
+to the right, nav targets whose source is not in the workspace dashed.
+Clicking a node opens its class.
 
 ## Reloading (`abap2ui5.reloadOn`)
 
@@ -458,6 +548,24 @@ server and prefers the local `ai-mcp` checkout over downloading via npx.
 The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 `abap2ui5.mcp.enabled: false` removes it.
 
+### The system MCP server
+
+ai-mcp is deliberately system-less. The extension additionally offers
+**abap2UI5 System** — a second, in-extension MCP server holding what only
+the extension has: the configured systems, the stored credentials and the
+auth proxy. An agent gets the real-system half of the loop:
+
+| MCP tool | What the agent gets |
+| --- | --- |
+| `list_systems` | The configured launch systems and which one is active |
+| `search_apps` | Class names on the system, via the ADT quick search |
+| `run_app` | The app rendered on the system, headless — as a screenshot |
+
+`run_app` loads the class through the auth proxy in the render gate's
+Chromium, so it needs the render gate installed once. Every prompt (system
+pick, credentials) stays a normal VS Code dialog — the agent never sees a
+password. `abap2ui5.mcp.system: false` removes the server.
+
 ## Settings
 
 | Setting | Default | Meaning |
@@ -475,6 +583,7 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2ui5.viewCheck.render` | `false` | Also run the headless render gate |
 | `abap2ui5.viewCheck.allow` | `[]` | Accepted deviations, e.g. `sap.m.GenericTile.systemInfo` |
 | `abap2ui5.mcp.enabled` | `true` | Offer the abap2UI5 MCP server to MCP clients |
+| `abap2ui5.mcp.system` | `true` | Also offer the abap2UI5 System MCP server (real-system tools) |
 | `abap2ui5.mcp.command` | – | Command starting the MCP server (empty = local checkout or npx) |
 | `abap2ui5.mcp.reposRoot` | – | Folder with the `abap2UI5` / `ai-demokit` / `linter` / `ai-mcp` checkouts |
 
@@ -496,8 +605,12 @@ The server appears in the MCP view (`MCP: List Servers`) as **abap2UI5**;
 | `abap2UI5: Show Reconstructed XML View` | Opens the XML the builder calls produce, live beside the class |
 | `abap2UI5: Fix All View Findings in This File` | Applies every mechanical fix at once |
 | `abap2UI5: Install Render Gate` | Downloads the render-gate checker and Chromium into the extension's storage |
+| `abap2UI5: Take App Screenshot` | Renders the running app headless and opens the PNG |
+| `abap2UI5: Show Traffic Log` | Opens the proxy's request log with roundtrip timings |
+| `abap2UI5: Convert XML View to Builder Chain` | Turns view XML (selection, document or clipboard) into a `z2ui5_cl_ai_xml` chain |
+| `abap2UI5: Show App Navigation Map` | Draws the workspace's apps and their `nav_app_call( )`s as a clickable graph |
 | `abap2UI5: Set Launch URL` | Sets (or changes) the launch URL template |
-| `abap2UI5: Insert New App Template` | Inserts an app class skeleton |
+| `abap2UI5: New App from Template` | Template gallery: pick a skeleton, name the class |
 | `abap2UI5: Clear Stored SAP Credentials` | Removes user and password from the SecretStorage |
 | `abap2UI5: Open Project on GitHub` | Opens the abap2UI5 repository in the browser |
 
@@ -512,11 +625,15 @@ socket works there:
 - the in-process property gate with its diagnostics, live while typing,
 - the reconstructed XML view with findings and Go to Definition,
 - the view outline and event navigation,
-- snippets and the app template.
+- colour swatches on colour-typed property values,
+- "Convert XML View to Builder Chain",
+- snippets and the template gallery ("New App from Template").
 
 Desktop-only (their commands hide from the palette on the web): the embedded
-preview with its auth proxy, Ctrl+F3 activation and the ADT integration, the
-render gate, the workspace-wide check, quick fixes, and the MCP server.
+preview with its auth proxy (and its traffic log, screenshot and stateful
+reload), Ctrl+F3 activation and the ADT integration, the render gate, the
+workspace-wide check, quick fixes, the navigation map, the Control
+Properties view, and the MCP servers.
 One knowing limit: the web check reads the VS Code settings only — a
 repository's `abap2ui5lint.jsonc` is not discovered there.
 

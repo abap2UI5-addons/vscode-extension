@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as os from "os";
+import { prepareAbap } from "@abap2ui5/linter/reconstruct";
 import { AdtClassState, AdtStatusError, SapProxy } from "./proxy";
 import {
   createNonce,
@@ -8,6 +10,7 @@ import {
   welcomeHtml,
 } from "./webview";
 import { registerMcp } from "./mcp";
+import { createSystemMcpServer } from "./mcpsystem";
 import { registerRenderGate } from "./rendergate";
 import { findingsNow, registerViewCheck } from "./viewcheck";
 import { registerXmlPreview } from "./xmlpreview";
@@ -18,11 +21,17 @@ import { classNameOf, errorTokens, isAppClass } from "./abap";
 import { expandTemplate, originOf, sapClientOf, withParams } from "./urls";
 import { suggestSystemUi5 } from "./ui5detect";
 import { registerAppSearch } from "./appsearch";
-import { APP_TEMPLATE } from "./template";
+import { registerNewApp } from "./wizard";
+import { registerConvert } from "./convert";
+import { registerNavMap } from "./navview";
+import { registerPropertyEditor } from "./propview";
+import { takeScreenshot } from "./screenshot";
+import { formatTrafficLine, isRoundtrip } from "./traffic";
 import { abapNsMap, viewOutline } from "./context";
 import { matchOutline, RuntimeControl } from "./inspect";
 import { ModelView, registerModelView } from "./modelview";
 import {
+  activeSystem,
   allSystems,
   askForTemplate,
   clearCredentials,
@@ -64,8 +73,31 @@ function loadMessage(target: AppTarget, theme: string, language: string, reason?
     shortUrl: shortUrl(target.externalUrl),
     theme,
     language,
+    modelRoots: modelRootsOf(target.className),
     reason,
   };
+}
+
+/**
+ * The class's own top-level model paths, derived the way the linter derives
+ * them - what a stateful reload is allowed to restore. Everything else in
+ * the runtime model is the framework's and belongs to the fresh page.
+ */
+function modelRootsOf(className: string): string[] {
+  const doc = openAbapDocs(className)[0];
+  if (!doc) {
+    return [];
+  }
+  try {
+    const prep = prepareAbap(doc.getText());
+    const shape = prep.usesBuilder ? prep.modelShape : undefined;
+    if (shape && typeof shape === "object" && !Array.isArray(shape)) {
+      return Object.keys(shape);
+    }
+  } catch {
+    // no shape, no restore - the pin simply has nothing to carry over
+  }
+  return [];
 }
 
 /**
@@ -112,6 +144,9 @@ let currentTarget: AppTarget | undefined;
 let statusItem: vscode.StatusBarItem | undefined;
 
 let output: vscode.OutputChannel | undefined;
+
+/** The proxy's request log (View → Output → "abap2UI5 Traffic"). */
+let trafficOutput: vscode.OutputChannel | undefined;
 
 /** The live-model document, set up during activation. */
 let modelView: ModelView | undefined;
@@ -236,6 +271,7 @@ class PreviewViewProvider implements vscode.WebviewViewProvider {
         ...this.target,
         theme: theme(),
         language: language(),
+        modelRoots: modelRootsOf(this.target.className),
         nonce: createNonce(),
       });
       this.previewRendered = true;
@@ -383,6 +419,14 @@ function handleWebviewMessage(msg: unknown, target: AppTarget | undefined): void
   }
   if (message?.type === "showRuntimeLog") {
     output?.show(true);
+    return;
+  }
+  if (message?.type === "showTraffic") {
+    trafficOutput?.show(true);
+    return;
+  }
+  if (message?.type === "screenshot") {
+    void vscode.commands.executeCommand("abap2ui5.screenshot");
     return;
   }
   if (message?.type === "param" && previewProvider) {
@@ -549,6 +593,7 @@ function showInTab(context: vscode.ExtensionContext, target: AppTarget): void {
     ...target,
     theme: theme(),
     language: language(),
+    modelRoots: modelRootsOf(target.className),
     nonce: createNonce(),
   });
 }
@@ -1065,6 +1110,18 @@ export function activate(context: vscode.ExtensionContext): void {
     `extension ${String(context.extension.packageJSON.version ?? "?")} activated`
   );
 
+  // Every request the embedded app makes goes through the proxy - log it
+  // with its full roundtrip time, and feed the toolbar's badge with the
+  // POSTs (the app's backend roundtrips).
+  trafficOutput = vscode.window.createOutputChannel("abap2UI5 Traffic");
+  context.subscriptions.push(trafficOutput);
+  proxy.onTraffic = (entry) => {
+    trafficOutput?.appendLine(formatTrafficLine(entry));
+    if (isRoundtrip(entry)) {
+      postToShownApp(provider, { type: "roundtrip", ms: entry.durationMs });
+    }
+  };
+
   watchProxyStatus(context, proxy, provider);
   modelView = registerModelView(context, log);
 
@@ -1224,7 +1281,49 @@ export function activate(context: vscode.ExtensionContext): void {
         "abap2UI5: stored SAP credentials deleted."
       );
     }),
-    vscode.commands.registerCommand("abap2ui5.newApp", newApp),
+    vscode.commands.registerCommand("abap2ui5.showTraffic", () => {
+      trafficOutput?.show(true);
+    }),
+    vscode.commands.registerCommand("abap2ui5.screenshot", async () => {
+      if (!currentTarget || !proxy.isRunning) {
+        vscode.window.showInformationMessage(
+          "abap2UI5: run an app in tab or panel mode first - the screenshot " +
+            "loads it through the auth proxy."
+        );
+        return;
+      }
+      const file = await takeScreenshot(
+        context,
+        { url: currentTarget.frameUrl, className: currentTarget.className },
+        log
+      );
+      if (!file) {
+        return;
+      }
+      await vscode.commands.executeCommand(
+        "vscode.open",
+        vscode.Uri.file(file),
+        vscode.ViewColumn.Beside
+      );
+      const pick = await vscode.window.showInformationMessage(
+        "abap2UI5: screenshot taken.",
+        "Save As…"
+      );
+      if (pick === "Save As…") {
+        const base =
+          vscode.workspace.workspaceFolders?.[0]?.uri ??
+          vscode.Uri.file(os.homedir());
+        const target = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.joinPath(base, file.split(/[\\/]/).pop()!),
+          filters: { Images: ["png"] },
+        });
+        if (target) {
+          await vscode.workspace.fs.copy(vscode.Uri.file(file), target, {
+            overwrite: true,
+          });
+        }
+      }
+    }),
     vscode.commands.registerCommand("abap2ui5.openHomepage", () =>
       vscode.env.openExternal(
         vscode.Uri.parse("https://github.com/abap2UI5/abap2UI5")
@@ -1232,51 +1331,80 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
+  // The system pick and credential flow F9 uses, ending in a started proxy -
+  // shared by "Run an App from the System" and the system MCP tools.
+  const connectSystem = async (): Promise<{ sapClient?: string } | undefined> => {
+    const system = await ensureSystem(context);
+    if (!system) {
+      return undefined;
+    }
+    const expanded = urlFor(system, "PROBE");
+    const origin = originOf(expanded);
+    if (!origin) {
+      vscode.window.showErrorMessage(
+        `abap2UI5: the launch URL of ${system.name} is not a valid URL.`
+      );
+      return undefined;
+    }
+    const creds = await ensureCredentials(context, origin);
+    if (!creds) {
+      return undefined;
+    }
+    await proxy.start(origin, creds.user, creds.pass);
+    return { sapClient: sapClientOf(expanded) };
+  };
+
   registerAppSearch(context, {
     proxy,
-    // The picker needs the system reachable before it can search: same
-    // system pick and credential flow F9 uses, ending in a started proxy.
-    connect: async () => {
-      const system = await ensureSystem(context);
-      if (!system) {
-        return undefined;
-      }
-      const expanded = urlFor(system, "PROBE");
-      const origin = originOf(expanded);
-      if (!origin) {
-        vscode.window.showErrorMessage(
-          `abap2UI5: the launch URL of ${system.name} is not a valid URL.`
-        );
-        return undefined;
-      }
-      const creds = await ensureCredentials(context, origin);
-      if (!creds) {
-        return undefined;
-      }
-      await proxy.start(origin, creds.user, creds.pass);
-      return { sapClient: sapClientOf(expanded) };
-    },
+    connect: connectSystem,
     run: (className) => runApp(context, proxy, provider, className),
     recent: () => recentApps(context),
     log,
   });
 
+  // The system MCP server: the extension's systems, credentials and proxy,
+  // offered to AI agents as tools (list/search/run-with-screenshot).
+  const systemMcp = createSystemMcpServer(
+    {
+      listSystems: () => ({
+        active: activeSystem(context)?.name,
+        systems: allSystems().map((s) => ({
+          name: s.name,
+          host: shortUrl(s.template),
+        })),
+      }),
+      connect: connectSystem,
+      proxy,
+      frameUrlFor: (className) => {
+        const system = activeSystem(context);
+        if (!system || !proxy.isRunning) {
+          return undefined;
+        }
+        const externalUrl = urlFor(system, className);
+        const origin = originOf(externalUrl);
+        return origin
+          ? externalUrl.replace(origin, proxy.origin)
+          : undefined;
+      },
+      screenshot: (className, url) =>
+        takeScreenshot(context, { url, className }, log),
+      log,
+    },
+    String(context.extension.packageJSON.version ?? "0.0.0")
+  );
+  context.subscriptions.push({ dispose: () => systemMcp.dispose() });
+
+  registerNewApp(context);
+  registerConvert(context, log);
+  registerNavMap(context, log);
+  registerPropertyEditor(context, log);
   registerViewCheck(context, log);
   registerXmlPreview(context, log, findingsNow);
   registerQuickFix(context, log);
   registerLanguageFeatures(context, log);
   registerCodeLens(context);
   registerRenderGate(context, log);
-  registerMcp(context, log);
-}
-
-async function newApp(): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showWarningMessage("Please open an ABAP file first.");
-    return;
-  }
-  await editor.edit((b) => b.insert(editor.selection.active, APP_TEMPLATE));
+  registerMcp(context, log, systemMcp);
 }
 
 export function deactivate(): void {

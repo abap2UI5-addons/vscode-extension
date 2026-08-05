@@ -15,7 +15,7 @@ import { parseAdtClassNames, SapProxy } from "./proxy";
 /** Keystroke debounce before asking the system. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-async function searchClasses(
+export async function searchClasses(
   proxy: SapProxy,
   query: string,
   sapClient: string | undefined

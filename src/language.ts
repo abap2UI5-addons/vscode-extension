@@ -39,10 +39,12 @@ import {
   describeControl,
   describeMember,
   deprecationText,
+  memberInfo,
   membersOf,
   Section,
   valuesFor,
 } from "./metadata";
+import { abapColorSpans, formatCssColor, xmlColorSpans } from "./colors";
 import { snapshot } from "./snapshot";
 import { VIEW_SELECTOR } from "./selector";
 
@@ -369,6 +371,64 @@ class ViewHover implements vscode.HoverProvider {
       return text ? new vscode.Hover(markdown(text), range) : undefined;
     }
     return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Colour swatches on colour-typed property values
+// ---------------------------------------------------------------------------
+
+/** Whether a member takes a CSS colour - `sap.ui.core.CSSColor` (and the
+ *  types derived from it) say so themselves; a string property whose name
+ *  ends in "color" (`backgroundColor` on a few older controls) counts too. */
+function isColorMember(data: Snapshot, control: string, member: string): boolean {
+  const type = memberInfo(data, control, member)?.type;
+  if (!type) {
+    return false;
+  }
+  return /CSSColor$/.test(type) || (type === "string" && /color$/i.test(member));
+}
+
+class ViewColors implements vscode.DocumentColorProvider {
+  provideDocumentColors(doc: vscode.TextDocument): vscode.ColorInformation[] {
+    const data = snapshot();
+    const text = doc.getText();
+    const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
+    if (!isXml && !usesBuilder(text)) {
+      return [];
+    }
+    const predicate = (control: string, member: string) =>
+      isColorMember(data, control, member);
+    const spans = isXml
+      ? xmlColorSpans(text, predicate)
+      : abapColorSpans(text, predicate);
+    return spans.map(
+      (span) =>
+        new vscode.ColorInformation(
+          new vscode.Range(doc.positionAt(span.start), doc.positionAt(span.end)),
+          new vscode.Color(
+            span.color.red,
+            span.color.green,
+            span.color.blue,
+            span.color.alpha
+          )
+        )
+    );
+  }
+
+  provideColorPresentations(
+    color: vscode.Color,
+    context: { range: vscode.Range }
+  ): vscode.ColorPresentation[] {
+    const label = formatCssColor({
+      red: color.red,
+      green: color.green,
+      blue: color.blue,
+      alpha: color.alpha,
+    });
+    const presentation = new vscode.ColorPresentation(label);
+    presentation.textEdit = vscode.TextEdit.replace(context.range, label);
+    return [presentation];
   }
 }
 
@@ -754,6 +814,7 @@ export function registerLanguageFeatures(
       "/"
     ),
     vscode.languages.registerHoverProvider(VIEW_SELECTOR, new ViewHover()),
+    vscode.languages.registerColorProvider(VIEW_SELECTOR, new ViewColors()),
     vscode.languages.registerDefinitionProvider(
       ABAP_SELECTOR,
       new EventDefinition()

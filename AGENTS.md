@@ -53,7 +53,19 @@ find a German string anywhere, it is a leftover — translate it.
 | `src/xmlpreview.ts` | "Show Reconstructed XML View": virtual document + live refresh |
 | `src/xmlformat.ts` | Pretty-printer for the reconstructed view trees (`prepareAbap( ).nodes`) |
 | `src/codelens.ts` | Run / Activate & reload / Check views above the class definition |
-| `src/mcp.ts` | Registers the abap2UI5 MCP server (ai-mcp) for MCP clients in the window |
+| `src/mcp.ts` | Registers the abap2UI5 MCP server (ai-mcp) and the in-extension system server for MCP clients in the window |
+| `src/mcprpc.ts` | Minimal MCP JSON-RPC dispatch (initialize, tools/list, tools/call) behind the system server |
+| `src/mcpsystem.ts` | The abap2UI5 System MCP server: HTTP host + the real-system tools (list/search/run-with-screenshot) |
+| `src/traffic.ts` | Formatting for the proxy's traffic log (the "abap2UI5 Traffic" channel and the roundtrip badge) |
+| `src/screenshot.ts` | "Take App Screenshot": finds the render gate's Chromium and renders the proxied URL headless |
+| `src/colors.ts` | Colour spans for colour-typed property values (the swatch/picker provider's logic) |
+| `src/xmltoabap.ts` | "Convert XML View to Builder Chain": XML parser + corpus-style chain emitter |
+| `src/convert.ts` | The convert command's plumbing (source pick, result document) |
+| `src/wizard.ts` | "New App from Template": template gallery pick + class name input |
+| `src/propedit.ts` | Property-editor edits: set/add/remove one `a( )` attribute as a span edit |
+| `src/propview.ts` | The "Control Properties" webview view: cursor -> `controlCallAt` -> form -> WorkspaceEdit |
+| `src/navmap.ts` | App navigation graph: nav_app_call extraction, column layout, SVG rendering |
+| `src/navview.ts` | "Show App Navigation Map": workspace scan + the webview panel around the SVG |
 | `src/snapshot.ts` | Loads the bundled UI5 metadata once, for the gate and the language features |
 | `src/abap.ts`, `src/urls.ts`, `src/context.ts`, `src/metadata.ts` | The `vscode`-free helpers — see below |
 | `src/test/` | `node --test` suite over exactly those modules |
@@ -68,7 +80,8 @@ not committed.
 **The `vscode`-free boundary is load-bearing.** `abap.ts`, `urls.ts`,
 `context.ts`, `metadata.ts`, `lintconfig.ts`, `snapshot.ts`,
 `bindingpaths.ts`, `xmlformat.ts`, `gate.ts`, `template.ts`, `inspect.ts`,
-`clientapi.ts`, `chainformat.ts`, `renderloc.ts`,
+`clientapi.ts`, `chainformat.ts`, `renderloc.ts`, `traffic.ts`,
+`colors.ts`, `xmltoabap.ts`, `propedit.ts`, `navmap.ts`, `mcprpc.ts`,
 `proxy.ts` and `webview.ts` (HTML strings only — the state it renders is
 passed in) must not import `vscode`: the test suite bundles them for plain
 Node, and an accidental import turns a unit test into a module-not-found
