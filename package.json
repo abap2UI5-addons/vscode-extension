@@ -494,7 +494,7 @@
     "test:web": "node esbuild.js && node esbuild.js --webtest && vscode-test-web --browserType=chromium --headless --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test.js"
   },
   "devDependencies": {
-    "@abap2ui5/linter": "github:abap2UI5/linter#9c2f2b19998b9ad02eccddcc236e3320796be069",
+    "@abap2ui5/linter": "github:abap2UI5/linter#c0e58d07103656f86dab6d883fcea1b6ee6d1060",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.101.0",
     "@vscode/test-web": "^0.0.81",

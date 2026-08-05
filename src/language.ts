@@ -469,6 +469,9 @@ class ClientApiHover implements vscode.HoverProvider {
     }
     const md = new vscode.MarkdownString();
     md.isTrusted = false;
+    if (method.obsolete) {
+      md.appendMarkdown(`⚠ **obsolete** — see the note below.\n\n`);
+    }
     md.appendCodeblock(method.signature, "abap");
     if (method.doc) {
       md.appendMarkdown(`\n${method.doc}`);
@@ -507,6 +510,12 @@ class ClientApiCompletion implements vscode.CompletionItemProvider {
         item.documentation = markdown(method.doc);
       }
       item.range = range;
+      // the interface's abapdoc says obsolete -> struck through and last,
+      // so the list itself steers to the current API
+      if (method.obsolete) {
+        item.tags = [vscode.CompletionItemTag.Deprecated];
+      }
+      item.sortText = `${method.obsolete ? "1" : "0"}${method.name}`;
       return item;
     });
   }

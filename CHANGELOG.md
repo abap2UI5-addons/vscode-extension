@@ -38,8 +38,14 @@
   offline.
 - **New snippets.** `z2ui5main` (lifecycle dispatch), `z2ui5popup`,
   `z2ui5popover`, `z2ui5toast`, `z2ui5msgbox`, `z2ui5navto`, `z2ui5navback`,
-  `z2ui5modelupdate`, `z2ui5eventarg` - every signature checked against the
-  bundled client API.
+  `z2ui5modelupdate`, `z2ui5eventarg` - and every shipped snippet (plus the
+  app template) now has to pass the bundled linter in the test suite, so a
+  snippet can no longer teach what the linter reports.
+- **Obsolete client methods are marked.** The `client->` completion strikes
+  through what the interface's own abapdoc declares obsolete (`_bind_edit`,
+  `nest_view_model_update`, `nest2_view_model_update`), sorts it last, and
+  the hover leads with the warning - the deprecation reaches you while
+  typing, not from the linter afterwards.
 - **Warned when the system outruns the metadata.** When the detected system
   UI5 is newer than the bundled snapshot, the output channel says so - a
   genuinely new control would be reported as unknown, and now the caveat is

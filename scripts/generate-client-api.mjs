@@ -77,13 +77,18 @@ export function parseInterface(source) {
       sig.push(lines[j]);
     }
     i = j;
+    const docText = plainDoc(doc);
     methods.push({
       name: m[1],
       signature: sig
         .map((l) => l.replace(/\s+$/, ""))
         .join("\n")
         .replace(/^\s+/, ""),
-      doc: plainDoc(doc),
+      doc: docText,
+      // The interface's own abapdoc is the single source of truth for what
+      // is obsolete - carried as data so completion can strike the method
+      // through instead of anyone re-learning it from the linter afterwards.
+      ...(/^obsolete\b/i.test(docText) ? { obsolete: true } : {}),
     });
     doc = [];
   }

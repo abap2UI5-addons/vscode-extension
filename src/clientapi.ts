@@ -19,6 +19,9 @@ export interface ClientMethod {
   name: string;
   signature: string;
   doc: string;
+  /** Set when the interface's own abapdoc declares the method obsolete -
+   *  completion strikes it through and sorts it last. */
+  obsolete?: boolean;
 }
 
 const METHODS: ClientMethod[] = (api as { methods: ClientMethod[] }).methods;

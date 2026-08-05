@@ -76,6 +76,18 @@ error. Put the interesting logic
 there and keep the VS Code modules to plumbing — that is what made the regex
 bugs (`INTERFACES:`, a class name inside a comment) testable at all.
 
+**Every shipped piece of ABAP must pass the bundled linter.** The snippets
+and the app template are corpus too: `src/test/snippets.test.ts` expands
+each snippet, wraps it in a class and runs the linter's ABAP rules (plus the
+full gate where a view is built) — zero error/warning findings, enforced by
+`npm test`. API conventions come from the linter's rules and the
+`z2ui5_if_client` abapdoc (the `obsolete` flags in `src/data/client-api.json`
+are parsed from it), never from assumption: a method existing with the right
+parameters says nothing about whether the ecosystem still wants it called —
+that is exactly how an obsolete `_bind_edit` once made it into a snippet.
+When the interface changes, regenerate with
+`node scripts/generate-client-api.mjs /path/to/abap2UI5` and commit the JSON.
+
 ## Build and verify
 
 Run all four before pushing. CI runs the same commands on every push and pull

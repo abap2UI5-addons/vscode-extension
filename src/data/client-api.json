@@ -55,7 +55,8 @@
     {
       "name": "nest_view_model_update",
       "signature": "METHODS nest_view_model_update.",
-      "doc": "obsolete - a nested view inherits the MAIN view's model, so this just\ndelegates to view_model_update( ); call that one directly"
+      "doc": "obsolete - a nested view inherits the MAIN view's model, so this just\ndelegates to view_model_update( ); call that one directly",
+      "obsolete": true
     },
     {
       "name": "nest2_view_display",
@@ -70,7 +71,8 @@
     {
       "name": "nest2_view_model_update",
       "signature": "METHODS nest2_view_model_update.",
-      "doc": "obsolete - a nested view inherits the MAIN view's model, so this just\ndelegates to view_model_update( ); call that one directly"
+      "doc": "obsolete - a nested view inherits the MAIN view's model, so this just\ndelegates to view_model_update( ); call that one directly",
+      "obsolete": true
     },
     {
       "name": "popup_display",
@@ -160,7 +162,8 @@
     {
       "name": "_bind_edit",
       "signature": "METHODS _bind_edit\n    IMPORTING\n      val                  TYPE data\n      path                 TYPE abap_bool                     DEFAULT abap_false\n      \"obsolete - inactive, not passed on internally\n      view                 TYPE clike                         DEFAULT cs_view-main\n      custom_mapper        TYPE REF TO z2ui5_if_ajson_mapping OPTIONAL\n      custom_mapper_back   TYPE REF TO z2ui5_if_ajson_mapping OPTIONAL\n      custom_filter        TYPE REF TO z2ui5_if_ajson_filter  OPTIONAL\n      custom_filter_back   TYPE REF TO z2ui5_if_ajson_filter  OPTIONAL\n      tab                  TYPE data                          OPTIONAL\n      tab_index            TYPE i                             OPTIONAL\n      switch_default_model TYPE abap_bool                     DEFAULT abap_false\n    RETURNING\n      VALUE(result)        TYPE string.",
-      "doc": "obsolete - behaves like _bind (both two-way), please use _bind;\nnote: _bind has no custom_mapper_back/custom_filter_back parameters -\nkeep using _bind_edit while you pass those"
+      "doc": "obsolete - behaves like _bind (both two-way), please use _bind;\nnote: _bind has no custom_mapper_back/custom_filter_back parameters -\nkeep using _bind_edit while you pass those",
+      "obsolete": true
     },
     {
       "name": "follow_up_action",
