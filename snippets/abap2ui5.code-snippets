@@ -97,5 +97,95 @@
     "prefix": "z2ui5disable",
     "description": "Waive one linter rule for the next line",
     "body": ["\" abap2ui5lint-disable-next-line ${1:rule-id} -- ${2:why}"]
+  },
+  "abap2UI5 Main (Lifecycle)": {
+    "prefix": "z2ui5main",
+    "description": "The main method's lifecycle dispatch - init, then events",
+    "body": [
+      "METHOD z2ui5_if_app~main.",
+      "",
+      "  IF client->check_on_init( ).",
+      "    ${1:on_init}( ).",
+      "    RETURN.",
+      "  ENDIF.",
+      "",
+      "  IF client->check_on_event( ).",
+      "    ${2:on_event}( ).",
+      "  ENDIF.",
+      "",
+      "ENDMETHOD.",
+      "$0"
+    ]
+  },
+  "abap2UI5 Popup (Dialog)": {
+    "prefix": "z2ui5popup",
+    "description": "Build a Dialog and display it as a popup",
+    "body": [
+      "DATA(popup) = z2ui5_cl_ai_xml=>factory( ).",
+      "popup->open( n = `Dialog`",
+      "    )->a( n = `xmlns` v = `sap.m`",
+      "    )->a( n = `title` v = `${1:My Popup}`",
+      "    )->open( n = `content`",
+      "    )->leaf( n = `Text`",
+      "    )->a( n = `text` v = `${2:Popup content}`",
+      "    )->shut( )",
+      "    )->open( n = `buttons`",
+      "    )->leaf( n = `Button`",
+      "    )->a( n = `text`  v = `Close`",
+      "    )->a( n = `press` v = client->_event( `${3:POPUP_CLOSE}` )",
+      "    )->shut( ).",
+      "",
+      "client->popup_display( popup->stringify( ) ).",
+      "$0"
+    ]
+  },
+  "abap2UI5 Popover": {
+    "prefix": "z2ui5popover",
+    "description": "Build a Popover and open it next to a control (by its id)",
+    "body": [
+      "DATA(popover) = z2ui5_cl_ai_xml=>factory( ).",
+      "popover->open( n = `Popover`",
+      "    )->a( n = `xmlns` v = `sap.m`",
+      "    )->a( n = `title` v = `${1:Details}`",
+      "    )->leaf( n = `Text`",
+      "    )->a( n = `text` v = `${2:Popover content}` ).",
+      "",
+      "client->popover_display( xml   = popover->stringify( )",
+      "                         by_id = `${3:openerId}` ).",
+      "$0"
+    ]
+  },
+  "abap2UI5 Message Toast": {
+    "prefix": "z2ui5toast",
+    "description": "Show a message toast",
+    "body": ["client->message_toast_display( `${1:Done.}` ).$0"]
+  },
+  "abap2UI5 Message Box": {
+    "prefix": "z2ui5msgbox",
+    "description": "Show a message box",
+    "body": [
+      "client->message_box_display( text = `${1:Are you sure?}`",
+      "                             type = `${2|information,success,warning,error|}` ).$0"
+    ]
+  },
+  "abap2UI5 Navigate to App": {
+    "prefix": "z2ui5navto",
+    "description": "Navigate to another abap2UI5 app",
+    "body": ["client->nav_app_call( NEW ${1:zcl_next_app}( ) ).$0"]
+  },
+  "abap2UI5 Navigate Back": {
+    "prefix": "z2ui5navback",
+    "description": "Return to the calling app",
+    "body": ["client->nav_app_leave( client->get_app_prev( ) ).$0"]
+  },
+  "abap2UI5 Model Update": {
+    "prefix": "z2ui5modelupdate",
+    "description": "Push the changed model to the running view (no re-render)",
+    "body": ["client->view_model_update( ).$0"]
+  },
+  "abap2UI5 Event Argument": {
+    "prefix": "z2ui5eventarg",
+    "description": "Read an argument the event's t_arg carried",
+    "body": ["DATA(${1:lv_arg}) = client->get_event_arg( ${2:1} ).$0"]
   }
 }

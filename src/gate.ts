@@ -10,8 +10,18 @@
 
 import { checkAbapRules } from "@abap2ui5/linter/abap-rules";
 import { prepareAbap } from "@abap2ui5/linter/reconstruct";
-import { checkNodes, parseXml, PropertyFinding } from "@abap2ui5/linter/properties";
-import { annotate, applyDirectives, applyRules } from "@abap2ui5/linter/findings";
+import {
+  checkNodes,
+  collectControlIds,
+  parseXml,
+  PropertyFinding,
+} from "@abap2ui5/linter/properties";
+import {
+  annotate,
+  applyDirectives,
+  applyRules,
+  attachNamespaceFixes,
+} from "@abap2ui5/linter/findings";
 import { snapshot } from "./snapshot";
 import type { CheckOptions } from "./lintconfig";
 
@@ -70,6 +80,7 @@ export function runGate(
         nothingChecked: "builder call found but no view could be reconstructed",
       };
     }
+    const controlIds: Record<string, string> = {};
     for (const node of prep.nodes) {
       // the model derived from the class is what makes the binding-path
       // rules possible - a path nothing in the model has stays silently
@@ -82,11 +93,15 @@ export function runGate(
           distribution,
           model: prep.model,
           shape: prep.modelShape,
+          rootFields: prep.rootFields,
         })
       );
+      Object.assign(controlIds, collectControlIds(node));
     }
-    // rules that need the class itself, not just the view tree
-    findings.push(...checkAbapRules(text));
+    // rules that need the class itself, not just the view tree - the id map
+    // and the snapshot let the CONTROL_BY_ID rules judge wire types
+    findings.push(...checkAbapRules(text, { data, controlIds }));
+    attachNamespaceFixes(findings, text);
     renderable = prep.docs.length > 0 && prep.helperTokens === 0;
     if (prep.helperTokens > 0) {
       helperNote = " (render gate skipped - view built in helper methods)";

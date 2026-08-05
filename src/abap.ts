@@ -101,6 +101,23 @@ export function declarationSpan(
 }
 
 /**
+ * Every METHOD implementation in the source, with the offset of its name -
+ * what the workspace symbol search and "go to method" navigate to. ABAP
+ * method names may carry `~` (interface implementations) and `/` (namespaced
+ * interfaces), so the name class is wider than `\w`.
+ */
+export function methodImplementations(
+  source: string
+): Array<{ name: string; start: number; end: number }> {
+  const out: Array<{ name: string; start: number; end: number }> = [];
+  for (const m of source.matchAll(/^[ \t]*METHOD\s+([\w~/]+)\s*[.\n]/gim)) {
+    const start = m.index + m[0].indexOf(m[1]);
+    out.push({ name: m[1], start, end: start + m[1].length });
+  }
+  return out;
+}
+
+/**
  * Tokens in a runtime error message worth looking up in the class: binding
  * paths (`/MT_TRAVELS/STATUS`) and quoted names - the pieces UI5 error texts
  * carry that also appear verbatim in the source. Longest first, so the most

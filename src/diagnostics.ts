@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { PropertyFinding } from "@abap2ui5/linter/properties";
 import { describe, RULES, severityOf } from "@abap2ui5/linter/findings";
+import { renderErrorOffset } from "./renderloc";
 
 /*
  * Findings -> VS Code diagnostics, extracted from `viewcheck.ts` so the web
@@ -104,9 +105,17 @@ export function toDiagnostics(
     }
     diagnostics.push(d);
   }
+  const text = renderErrors.length ? doc.getText() : "";
   for (const e of renderErrors) {
+    // render errors are strings without positions - the token the message
+    // quotes is the best anchor there is; line 0 only when nothing matches
+    const at = renderErrorOffset(e, text);
+    const range =
+      at === undefined
+        ? doc.lineAt(0).range
+        : doc.lineAt(doc.positionAt(at).line).range;
     const d = new vscode.Diagnostic(
-      doc.lineAt(0).range,
+      range,
       `render: ${e.slice(0, 300)}`,
       vscode.DiagnosticSeverity.Error
     );

@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.20.0
+
+- **The client API is known before the fact.** `client->` completion offers
+  every `z2ui5_if_client` method, and hovering a call shows its full ABAP
+  signature and documentation - parsed from the interface source and bundled,
+  so `popover_display( xml = … by_id = … )` is offered correctly instead of
+  corrected afterwards. Triggered by the `>` of the arrow.
+- **Format Document repairs a builder chain.** The chain IS the view
+  hierarchy, so its indentation is structure, not taste: a child one step
+  under its parent, an attribute one step under its element, a `shut( )` on
+  the level of the `open( )` it closes. Only lines beginning with a builder
+  verb inside a chain are touched - comments, multi-line values and
+  everything else keep their bytes. Verified as a no-op against the
+  canonical corpus style.
+- **Baseline support - adopt the linter without fixing everything first.**
+  When `abap2ui5lint.jsonc` names a `baseline` file, the editor drops
+  exactly the findings CI drops and logs how many. A new quick fix "add to
+  baseline" appends the finding under the cursor to that file (same
+  line-free keys as the CLI's `--update-baseline`), and the squiggle
+  disappears immediately.
+- **Render errors land on their line.** The render gate reports message
+  strings, which used to squiggle line 0 of every file. The token the
+  message quotes (a value, a control name) is located in the source and the
+  error is placed there; only a message quoting nothing keeps line 0.
+- **More rules run in the editor.** The in-process gate now hands the class's
+  own control ids and root fields to the linter, enabling the
+  `CONTROL_BY_ID` wire checks and `relative-binding-without-context` - and
+  attaches the `undeclared-namespace` quick fix for conventional prefixes
+  (`xmlns:l`, `xmlns:core`, …), exactly like the CLI.
+- **Method navigation for the ABAP file.** F12 on a method call jumps to its
+  `METHOD` implementation in the class, and the workspace symbol search
+  (`Ctrl+T`) finds method implementations across every `*.abap` file.
+- **`abap2ui5lint.jsonc` validates while you edit it.** The linter's own
+  config schema ships with the extension (`contributes.jsonValidation`), so
+  an unknown key or a misspelled rule id squiggles in the config file,
+  offline.
+- **New snippets.** `z2ui5main` (lifecycle dispatch), `z2ui5popup`,
+  `z2ui5popover`, `z2ui5toast`, `z2ui5msgbox`, `z2ui5navto`, `z2ui5navback`,
+  `z2ui5modelupdate`, `z2ui5eventarg` - and every shipped snippet (plus the
+  app template) now has to pass the bundled linter in the test suite, so a
+  snippet can no longer teach what the linter reports.
+- **Obsolete client methods are marked.** The `client->` completion strikes
+  through what the interface's own abapdoc declares obsolete (`_bind_edit`,
+  `nest_view_model_update`, `nest2_view_model_update`), sorts it last, and
+  the hover leads with the warning - the deprecation reaches you while
+  typing, not from the linter afterwards.
+- **Warned when the system outruns the metadata.** When the detected system
+  UI5 is newer than the bundled snapshot, the output channel says so - a
+  genuinely new control would be reported as unknown, and now the caveat is
+  on record instead of a mystery.
+- **Activation covers view files.** The extension also activates for XML
+  files and workspaces containing `*.view.xml` / `*.fragment.xml`, so raw
+  view checking works without opening an ABAP file first.
+- **Fix-on-save, documented.** Opt in with
+  `"editor.codeActionsOnSave": { "source.fixAll.abap2ui5": "explicit" }` -
+  every mechanical fix is applied on save, same as the CLI's `--fix`.
+
 ## 0.19.0
 
 - **Inspect: click the app, land in the code.** The 🎯 button in the preview

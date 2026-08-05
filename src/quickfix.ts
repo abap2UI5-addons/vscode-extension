@@ -1,6 +1,9 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
 import { PropertyFinding } from "@abap2ui5/linter/properties";
-import { findingsNow } from "./viewcheck";
+import { baselineBase, findingKey } from "@abap2ui5/linter/baseline";
+import { baselineFileFor, findingsNow, recheckOpenDocuments } from "./viewcheck";
 
 /*
  * Quick fixes for the view-check findings.
@@ -141,6 +144,7 @@ class ViewCheckActions implements vscode.CodeActionProvider {
     }
 
     // --- waive one line, the way the CLI understands it -------------------
+    const baselineFile = baselineFileFor(doc);
     for (const diagnostic of context.diagnostics) {
       if (diagnostic.source !== DIAG_SOURCE) {
         continue;
@@ -159,6 +163,30 @@ class ViewCheckActions implements vscode.CodeActionProvider {
       ]);
       action.diagnostics = [diagnostic];
       actions.push(action);
+
+      // --- adopt into the baseline, when the repo config names one --------
+      if (baselineFile) {
+        const finding =
+          findings.find(
+            (f) =>
+              f.type === rule &&
+              typeof f.line === "number" &&
+              f.line - 1 === diagnostic.range.start.line
+          ) ?? findings.find((f) => f.type === rule);
+        if (finding) {
+          const baseline = new vscode.CodeAction(
+            `abap2UI5: add ${rule} to ${path.basename(baselineFile)}`,
+            vscode.CodeActionKind.QuickFix
+          );
+          baseline.command = {
+            command: "abap2ui5.addToBaseline",
+            title: "Add to baseline",
+            arguments: [baselineFile, doc.uri.fsPath, finding],
+          };
+          baseline.diagnostics = [diagnostic];
+          actions.push(baseline);
+        }
+      }
     }
 
     return actions;
@@ -200,6 +228,52 @@ function applyAll(
   return { edit, count: edits.length };
 }
 
+/**
+ * Appends one finding to the repo's baseline file - the same key and count
+ * semantics `--update-baseline` writes, so the CLI recognises the entry. The
+ * file watcher on the baseline is not ours; the next check simply reads the
+ * new mtime and the diagnostic disappears.
+ */
+function addToBaseline(
+  baselineFile: string,
+  sourceFile: string,
+  finding: PropertyFinding
+): string {
+  let raw: { note?: string; findings?: Record<string, number> } = {};
+  try {
+    raw = JSON.parse(fs.readFileSync(baselineFile, "utf8"));
+  } catch {
+    // a missing or empty file starts a fresh baseline
+  }
+  const findings: Record<string, number> = raw.findings ?? {};
+  const rel = path
+    .relative(baselineBase(baselineFile), sourceFile)
+    .split(path.sep)
+    .join("/");
+  const key = findingKey(rel, finding);
+  findings[key] = (findings[key] ?? 0) + 1;
+  const sorted: Record<string, number> = {};
+  for (const k of Object.keys(findings).sort()) {
+    sorted[k] = findings[k];
+  }
+  fs.writeFileSync(
+    baselineFile,
+    `${JSON.stringify(
+      {
+        note:
+          raw.note ??
+          "abap2ui5-linter baseline: findings that existed when the linter " +
+            "was adopted. Suppressed on every run; NEW findings still fail, " +
+            "a STALE entry fails too. Regenerate with --update-baseline.",
+        findings: sorted,
+      },
+      null,
+      2
+    )}\n`
+  );
+  return key;
+}
+
 export function registerQuickFix(
   context: vscode.ExtensionContext,
   log: (m: string) => void
@@ -208,6 +282,20 @@ export function registerQuickFix(
     vscode.languages.registerCodeActionsProvider(VIEW_SELECTOR, new ViewCheckActions(), {
       providedCodeActionKinds: ViewCheckActions.kinds,
     }),
+    vscode.commands.registerCommand(
+      "abap2ui5.addToBaseline",
+      (baselineFile: string, sourceFile: string, finding: PropertyFinding) => {
+        try {
+          const key = addToBaseline(baselineFile, sourceFile, finding);
+          log(`quick-fix: baselined ${key} in ${baselineFile}`);
+          recheckOpenDocuments();
+        } catch (err) {
+          vscode.window.showWarningMessage(
+            `abap2UI5: could not update ${baselineFile} - ${String(err)}`
+          );
+        }
+      }
+    ),
     vscode.commands.registerCommand("abap2ui5.fixAll", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {

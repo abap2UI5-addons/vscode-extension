@@ -10,6 +10,7 @@ import { usesBuilder } from "./abap";
 import { runGate, VIEW_XML_RE } from "./gate";
 import { toDiagnostics } from "./diagnostics";
 import {
+  applyBaselineTo,
   CheckOptions,
   clearConfigCache,
   describeOptions,
@@ -99,6 +100,12 @@ function discoveryDir(doc: vscode.TextDocument): string | undefined {
     return path.dirname(doc.uri.fsPath);
   }
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+/** The baseline file governing this document, if its repo config names one -
+ *  what the "add to baseline" quick fix appends to. */
+export function baselineFileFor(doc: vscode.TextDocument): string | undefined {
+  return doc.uri.scheme === "file" ? optionsFor(doc).baseline : undefined;
 }
 
 function optionsFor(doc: vscode.TextDocument): CheckOptions {
@@ -290,6 +297,16 @@ function runRenderGate(
  */
 let memo: { key: string; version: number; findings: PropertyFinding[] } | undefined;
 
+/** Set by registerViewCheck - lets the quick-fix module ask for a re-check
+ *  after it changed something OUTSIDE the document (the baseline file), which
+ *  no document version bump would ever notice. */
+let recheckAll: () => void = () => {};
+
+export function recheckOpenDocuments(): void {
+  memo = undefined;
+  recheckAll();
+}
+
 export function findingsNow(doc: vscode.TextDocument): PropertyFinding[] {
   const key = doc.uri.toString();
   if (memo && memo.key === key && memo.version === doc.version) {
@@ -302,7 +319,13 @@ export function findingsNow(doc: vscode.TextDocument): PropertyFinding[] {
   }
   const text = doc.getText();
   const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
-  const gate = runGate(text, doc.uri.fsPath || doc.fileName, isXml, optionsFor(doc));
+  const options = optionsFor(doc);
+  const gate = runGate(text, doc.uri.fsPath || doc.fileName, isXml, options);
+  if (options.baseline && doc.uri.scheme === "file") {
+    // the quick-fix provider must see what the diagnostics show - a fix
+    // offered for a finding the baseline already swallowed makes no sense
+    applyBaselineTo(gate.findings, options.baseline, doc.uri.fsPath);
+  }
   memo = { key, version: doc.version, findings: gate.findings };
   return gate.findings;
 }
@@ -393,6 +416,10 @@ async function checkDocument(
   const name = path.basename(doc.fileName);
   const isXml = VIEW_XML_RE.test(doc.fileName) || /^\s*</.test(text);
   const gate = runGate(text, doc.uri.fsPath || name, isXml, options);
+  let baselined = 0;
+  if (options.baseline && doc.uri.scheme === "file") {
+    baselined = applyBaselineTo(gate.findings, options.baseline, doc.uri.fsPath);
+  }
 
   if (gate.nothingChecked) {
     diagnostics.delete(doc.uri);
@@ -427,7 +454,8 @@ async function checkDocument(
   diagnostics.set(doc.uri, diags);
   log(
     `view-check: ${name} - ${gate.findings.length} finding(s), ` +
-      `${renderErrors.length} render error(s)${helperNote}`
+      `${renderErrors.length} render error(s)${helperNote}` +
+      (baselined ? ` (${baselined} baselined)` : "")
   );
   if (request.announce) {
     if (diags.length === 0) {
@@ -507,6 +535,9 @@ async function checkWorkspace(
         if (gate.nothingChecked) {
           continue;
         }
+        if (options.baseline) {
+          applyBaselineTo(gate.findings, options.baseline, uri.fsPath);
+        }
         checked++;
         // The file is opened as a text document so the finding ranges are
         // computed against real lines, exactly like the on-save check does.
@@ -549,6 +580,7 @@ export function registerViewCheck(
       }
     }
   };
+  recheckAll = recheckOpen;
 
   // A config file is part of the answer for every file it governs, so a
   // change to one invalidates the cache and re-checks what is open.

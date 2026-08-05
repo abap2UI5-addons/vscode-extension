@@ -8,16 +8,25 @@ const tests = process.argv.includes("--tests");
 const webTests = process.argv.includes("--webtest");
 
 /** The UI5 metadata snapshot of the bundled view checker ships next to the
- *  bundle - the property gate reads it at runtime. */
+ *  bundle - the property gate reads it at runtime. The config-file schema
+ *  travels the same way: `contributes.jsonValidation` points at the copy, so
+ *  editing `abap2ui5lint.jsonc` validates against exactly the pinned linter's
+ *  schema, offline. */
 function copySnapshot() {
-  const src = path.join(
+  const data = path.join(
     path.dirname(require.resolve("@abap2ui5/linter/properties")),
     "..",
-    "data",
-    "properties.json"
+    "data"
   );
   fs.mkdirSync("dist", { recursive: true });
-  fs.copyFileSync(src, path.join("dist", "properties.json"));
+  fs.copyFileSync(
+    path.join(data, "properties.json"),
+    path.join("dist", "properties.json")
+  );
+  fs.copyFileSync(
+    path.join(data, "abap2ui5lint.schema.json"),
+    path.join("dist", "abap2ui5lint.schema.json")
+  );
 }
 
 /* Shared with the test build: the linter's ESM modules use import.meta.url,

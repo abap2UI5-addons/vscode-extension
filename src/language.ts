@@ -24,7 +24,15 @@ import {
   resolvePathKind,
   rowShapeFor,
 } from "./bindingpaths";
-import { declarationSpan, usesBuilder } from "./abap";
+import { declarationSpan, methodImplementations, usesBuilder } from "./abap";
+import {
+  clientCallAt,
+  clientMethod,
+  clientMethods,
+  isClientCompletion,
+  signatureHead,
+} from "./clientapi";
+import { chainIndentEdits } from "./chainformat";
 import { Snapshot } from "./metadata";
 import {
   controlsIn,
@@ -442,6 +450,198 @@ class EventDefinition implements vscode.DefinitionProvider {
 }
 
 // ---------------------------------------------------------------------------
+// The client API: hover and completion for client-> calls
+// ---------------------------------------------------------------------------
+
+class ClientApiHover implements vscode.HoverProvider {
+  provideHover(
+    doc: vscode.TextDocument,
+    position: vscode.Position
+  ): vscode.Hover | undefined {
+    const line = doc.lineAt(position.line).text;
+    const name = clientCallAt(line, position.character);
+    if (!name) {
+      return undefined;
+    }
+    const method = clientMethod(name);
+    if (!method) {
+      return undefined;
+    }
+    const md = new vscode.MarkdownString();
+    md.isTrusted = false;
+    if (method.obsolete) {
+      md.appendMarkdown(`⚠ **obsolete** — see the note below.\n\n`);
+    }
+    md.appendCodeblock(method.signature, "abap");
+    if (method.doc) {
+      md.appendMarkdown(`\n${method.doc}`);
+    }
+    return new vscode.Hover(md);
+  }
+}
+
+class ClientApiCompletion implements vscode.CompletionItemProvider {
+  provideCompletionItems(
+    doc: vscode.TextDocument,
+    position: vscode.Position
+  ): vscode.CompletionItem[] {
+    const upToCursor = doc
+      .lineAt(position.line)
+      .text.slice(0, position.character);
+    if (!isClientCompletion(upToCursor)) {
+      return [];
+    }
+    // replace the partial member already typed, so accepting an item never
+    // doubles what stands there
+    const typed = /(\w*)$/.exec(upToCursor)![1];
+    const range = new vscode.Range(
+      position.line,
+      position.character - typed.length,
+      position.line,
+      position.character
+    );
+    return clientMethods().map((method) => {
+      const item = new vscode.CompletionItem(
+        method.name,
+        vscode.CompletionItemKind.Method
+      );
+      item.detail = signatureHead(method);
+      if (method.doc) {
+        item.documentation = markdown(method.doc);
+      }
+      item.range = range;
+      // the interface's abapdoc says obsolete -> struck through and last,
+      // so the list itself steers to the current API
+      if (method.obsolete) {
+        item.tags = [vscode.CompletionItemTag.Deprecated];
+      }
+      item.sortText = `${method.obsolete ? "1" : "0"}${method.name}`;
+      return item;
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Format Document: builder-chain indentation
+// ---------------------------------------------------------------------------
+
+class ChainFormatting implements vscode.DocumentFormattingEditProvider {
+  provideDocumentFormattingEdits(
+    doc: vscode.TextDocument
+  ): vscode.TextEdit[] {
+    const text = doc.getText();
+    if (!usesBuilder(text)) {
+      return []; // nothing to format - the chains are what this understands
+    }
+    return chainIndentEdits(text).map((edit) => {
+      const line = doc.lineAt(edit.line);
+      const leading = line.text.length - line.text.trimStart().length;
+      return vscode.TextEdit.replace(
+        new vscode.Range(edit.line, 0, edit.line, leading),
+        edit.indent
+      );
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Methods: definition jump and workspace-wide symbol search
+// ---------------------------------------------------------------------------
+
+class MethodDefinition implements vscode.DefinitionProvider {
+  provideDefinition(
+    doc: vscode.TextDocument,
+    position: vscode.Position
+  ): vscode.Definition | undefined {
+    const wordRange = doc.getWordRangeAtPosition(position, /[\w~/]+/);
+    if (!wordRange) {
+      return undefined;
+    }
+    const word = doc.getText(wordRange);
+    // only a call takes the jump - a `(` right after the name; anything else
+    // is left to the ABAP extension's own resolution
+    const after = doc
+      .lineAt(position.line)
+      .text.slice(wordRange.end.character);
+    if (!/^\s*\(/.test(after)) {
+      return undefined;
+    }
+    const text = doc.getText();
+    const cursor = doc.offsetAt(position);
+    for (const m of methodImplementations(text)) {
+      if (
+        m.name.toLowerCase() === word.toLowerCase() &&
+        // the implementation itself is not its own definition
+        (cursor < m.start || cursor > m.end)
+      ) {
+        return new vscode.Location(
+          doc.uri,
+          new vscode.Range(doc.positionAt(m.start), doc.positionAt(m.end))
+        );
+      }
+    }
+    return undefined;
+  }
+}
+
+/** How many files the workspace symbol search is willing to read - beyond
+ *  this a workspace is better served by a real ABAP language server. */
+const SYMBOL_FILE_CAP = 500;
+
+class MethodWorkspaceSymbols implements vscode.WorkspaceSymbolProvider {
+  async provideWorkspaceSymbols(
+    query: string,
+    token: vscode.CancellationToken
+  ): Promise<vscode.SymbolInformation[]> {
+    if (query.length < 2) {
+      return []; // a one-letter query would match half of every file
+    }
+    const files = await vscode.workspace.findFiles(
+      "**/*.abap",
+      "**/{node_modules,.git,dist,out}/**",
+      SYMBOL_FILE_CAP
+    );
+    const needle = query.toLowerCase();
+    const symbols: vscode.SymbolInformation[] = [];
+    for (const uri of files) {
+      if (token.isCancellationRequested) {
+        break;
+      }
+      let text: string;
+      try {
+        text = Buffer.from(
+          await vscode.workspace.fs.readFile(uri)
+        ).toString("utf8");
+      } catch {
+        continue;
+      }
+      for (const m of methodImplementations(text)) {
+        if (!m.name.toLowerCase().includes(needle)) {
+          continue;
+        }
+        // line/character from the offset without opening a TextDocument -
+        // opening hundreds of documents is what would make this slow
+        const before = text.slice(0, m.start);
+        const line = (before.match(/\n/g) ?? []).length;
+        const col = m.start - (before.lastIndexOf("\n") + 1);
+        symbols.push(
+          new vscode.SymbolInformation(
+            m.name,
+            vscode.SymbolKind.Method,
+            uri.path.split("/").pop() ?? "",
+            new vscode.Location(
+              uri,
+              new vscode.Range(line, col, line, col + m.name.length)
+            )
+          )
+        );
+      }
+    }
+    return symbols;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Rename: an event name, everywhere it appears
 // ---------------------------------------------------------------------------
 
@@ -564,7 +764,29 @@ export function registerLanguageFeatures(
       ABAP_SELECTOR,
       new ViewOutlineSymbols(),
       { label: "abap2UI5 view" }
+    ),
+    // `>` is the last character of `client->` - the completion opens right
+    // when the arrow is finished.
+    vscode.languages.registerCompletionItemProvider(
+      ABAP_SELECTOR,
+      new ClientApiCompletion(),
+      ">"
+    ),
+    vscode.languages.registerHoverProvider(ABAP_SELECTOR, new ClientApiHover()),
+    vscode.languages.registerDocumentFormattingEditProvider(
+      ABAP_SELECTOR,
+      new ChainFormatting()
+    ),
+    vscode.languages.registerDefinitionProvider(
+      ABAP_SELECTOR,
+      new MethodDefinition()
+    ),
+    vscode.languages.registerWorkspaceSymbolProvider(
+      new MethodWorkspaceSymbols()
     )
   );
-  log("language: completion, hover, event navigation and view outline registered");
+  log(
+    "language: completion, hover, client API, chain formatting, " +
+      "method navigation and view outline registered"
+  );
 }

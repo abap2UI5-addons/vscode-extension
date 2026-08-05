@@ -13,7 +13,14 @@
  */
 
 import * as fs from "fs";
+import * as path from "path";
 import { findConfigFrom, loadConfig } from "@abap2ui5/linter/config";
+import {
+  applyBaseline,
+  baselineBase,
+  loadBaseline,
+} from "@abap2ui5/linter/baseline";
+import type { PropertyFinding } from "@abap2ui5/linter/properties";
 
 /** The knobs both the config file and the VS Code settings can set. */
 export interface CheckOptions {
@@ -22,6 +29,9 @@ export interface CheckOptions {
   allow: string[];
   /** Per-rule severity overrides / switch-offs, as the linter interprets it. */
   rules?: Record<string, unknown>;
+  /** The adoption baseline file (absolute) - findings it covers are dropped,
+   *  exactly as `--baseline` drops them in CI. */
+  baseline?: string;
   /** The config file the values came from, for the output channel. */
   configFile?: string;
   /** Set when a config file was found but could not be read. */
@@ -46,6 +56,7 @@ const cache = new Map<string, CacheEntry>();
 /** Forget everything — the config file changed on disk. */
 export function clearConfigCache(): void {
   cache.clear();
+  baselineCache.clear();
 }
 
 /**
@@ -117,8 +128,67 @@ export function resolveOptions(
     distribution: (loaded.distribution as string) ?? settings.distribution,
     allow: [...new Set([...(loaded.allow as string[] | undefined ?? []), ...settings.allow])],
     rules: loaded.rules as Record<string, unknown> | undefined,
+    baseline: loaded.baseline
+      ? path.resolve(path.dirname(file), loaded.baseline as string)
+      : undefined,
     configFile: file,
   };
+}
+
+interface BaselineEntry {
+  mtimeMs: number;
+  map: Map<string, number> | null;
+}
+
+const baselineCache = new Map<string, BaselineEntry>();
+
+/** A baseline file as key -> count, memoised on its mtime like the config
+ *  itself. An unreadable baseline suppresses nothing - the CLI fails on one,
+ *  and hiding findings behind a broken file would be the opposite. */
+function readBaseline(file: string): Map<string, number> | null {
+  let mtimeMs = 0;
+  try {
+    mtimeMs = fs.statSync(file).mtimeMs;
+  } catch {
+    return null;
+  }
+  const cached = baselineCache.get(file);
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached.map;
+  }
+  let map: Map<string, number> | null;
+  try {
+    map = loadBaseline(file);
+  } catch {
+    map = null;
+  }
+  baselineCache.set(file, { mtimeMs, map });
+  return map;
+}
+
+/**
+ * Drops the findings the configured baseline covers - the adopted debt a
+ * repository chose to grandfather. Returns how many were suppressed, so the
+ * output channel can say the number instead of the findings just vanishing.
+ * Stale entries are CI's to fail on, not the editor's.
+ */
+export function applyBaselineTo(
+  findings: PropertyFinding[],
+  baselineFile: string,
+  sourceFilePath: string
+): number {
+  const map = readBaseline(baselineFile);
+  if (!map || map.size === 0 || findings.length === 0) {
+    return 0;
+  }
+  // applyBaseline consumes counts in place - copy, so one keystroke's check
+  // does not eat the budget of the next
+  const budget = new Map(map);
+  const results = [{ file: sourceFilePath, findings }];
+  const { suppressed } = applyBaseline(results, budget, baselineBase(baselineFile));
+  findings.length = 0;
+  findings.push(...results[0].findings);
+  return suppressed;
 }
 
 /** One line for the output channel describing where the check's settings came
